@@ -49,7 +49,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\restore.ps1 -Apply   # cop
 3. Sign in: `claude` and `codex login`.
 4. Import a scheduled task: `Register-ScheduledTask -Xml (Get-Content .\scheduled-tasks\MCP-Weekly-Update.xml -Raw) -TaskName MCP-Weekly-Update`.
 
-Paths in the scripts assume the user folder `C:\Users\ADMIN`. Change them if your user folder is different.
+The configs were captured on a machine whose user folder is `C:\Users\ADMIN`. With `-Apply`, `restore.ps1` rewrites that folder to your own user folder in `~/.claude/settings.json` (hooks and status line), `~/.codex/config.toml`, and `~/.codex/hooks.json`. The rule files (`CLAUDE.md`, `AGENTS.md`) still mention `C:\Users\ADMIN` as text.
+
+The status line's OpenRouter row reads the `OPENROUTER_API_KEY` environment variable. Without it, the row stays empty; the other rows still work.
 
 ## What is not in this repository
 

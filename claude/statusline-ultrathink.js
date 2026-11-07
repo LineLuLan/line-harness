@@ -133,9 +133,13 @@ if (process.argv.includes('--refresh')) {
       }
     } catch {}
     try {
-      const env = fs.readFileSync('D:\\01_Workspaces\\TwoHearts\\.env.local', 'utf8');
-      const match = env.match(/^OPENROUTER_API_KEY=(.+)$/m);
-      const key = match && match[1].trim();
+      // Env var first so the status line works on any machine; Line's TwoHearts .env.local is the fallback.
+      let key = (process.env.OPENROUTER_API_KEY || '').trim();
+      if (!key) {
+        const envFile = process.env.ULTRATHINK_OPENROUTER_ENV_FILE || 'D:\\01_Workspaces\\TwoHearts\\.env.local';
+        const match = fs.readFileSync(envFile, 'utf8').match(/^OPENROUTER_API_KEY=(.+)$/m);
+        key = match ? match[1].trim() : '';
+      }
       if (key) {
         const headers = { Authorization: `Bearer ${key}` };
         const out = { total: null, used: null, daily: null, weekly: null, limit: null, limitRemaining: null };
