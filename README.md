@@ -27,7 +27,6 @@ The full operating policy is in `codex/AGENTS.md` (shared rules) and `claude/CLA
 | `claude/plugins/` | `~/.claude/plugins/` | Installed plugin and marketplace lists |
 | `codex/AGENTS.md`, `codex/config.toml`, `codex/hooks.json` | `~/.codex/` | Codex rules, configuration, and hooks |
 | `codex/hooks/`, `codex/rules/`, `codex/skills/`, `codex/skills-archive/` | `~/.codex/` | Codex hooks, rules, active and archived skills |
-| `home/AGENTS.md` | `~/AGENTS.md` | Codex adapter for the home directory |
 | `terminal/windows-terminal-settings.json` | Windows Terminal `LocalState/settings.json` | Windows Terminal profiles and theme |
 | `scheduled-tasks/*.xml` | Task Scheduler | Weekly MCP update and Docker RAM tracker (headless through `conhost.exe --headless`) |
 

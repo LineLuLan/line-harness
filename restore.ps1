@@ -18,7 +18,6 @@ $map = @(
   @('codex\hooks', "$h\.codex\hooks"),
   @('codex\rules', "$h\.codex\rules"),
   @('codex\skills', "$h\.codex\skills"),
-  @('home\AGENTS.md', "$h\AGENTS.md"),
   @('terminal\windows-terminal-settings.json', "$h\AppData\Local\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json")
 )
 foreach ($m in $map) {
