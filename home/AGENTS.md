@@ -17,7 +17,7 @@ The shared rulebook is `~/.codex/AGENTS.md` (team policy version 1.0 plus Line's
 - Two bank skills carry the `cx-` prefix on this side (`cx-code-review`, `cx-verify`) because the plain names collide with Codex built-ins.
 - MCP servers, verdicts, and usage rules: `D:\01_Workspaces\SKILLs-repository\_shared\MCP-GUIDE.md`. Active here: context7, github, codegraph, codex (MCP), langfuse, neon, plus Codex.ai connectors. fetch and sequential-thinking are removed.
 
-## Worker Dispatch (this machine)
+## Worker Dispatch
 
 Two paths; pick by task shape:
 
@@ -30,7 +30,7 @@ Two paths; pick by task shape:
 
 Print the full task packet before every dispatch. Verify worker output against the packet checklist; never trust the self-report. Kill worker processes only by exact PID, never by name pattern (incident 2026-08-08: a name-pattern kill destroyed a running delegation).
 
-## Model Routing (decided by Line, 2026-08-08)
+## Model Routing
 
 Supervisor: Codex Fable 5 first, Codex Opus 5 second (fallback on capacity or context). The supervisor does not downgrade for cost; supervisor tokens buy judgment.
 
@@ -53,7 +53,7 @@ Hard-work phase map (algorithm, debugging, integration, phase-by-phase owners): 
 
 Under 60 percent: proceed. 60-69: checkpoint. 70-79: offer `/handoff` before a major task. 80 or more: handoff or fresh session is mandatory. Compaction rules: the `strategic-compact` skill.
 
-## Timeout Doctrine (from [teammate D]'s liveness rule, extended 2026-08-09)
+## Timeout Doctrine
 
 Measure heartbeats, not wall clocks. A slow job and a dead job are different things.
 
@@ -79,7 +79,7 @@ Output diet — command output is context budget (from [teammate N]'s RTK princi
 - Never paste a full log when one summary line answers the question.
 - Read files by line range when the target is known. Do not read whole files to explore.
 
-## Interview-First Rule (approved by Line, 2026-08-09)
+## Interview-First Rule
 
 Before starting work, interview Line with concrete options (plan-mode style: 2-4 questions, each with choices, the recommended choice first) when ANY of these is true:
 
@@ -97,7 +97,7 @@ Otherwise do not ask. Clear bounded tasks proceed directly. Minor choices (namin
 4. Check context usage before a major task.
 5. State the plan before the first tool call.
 
-## Active Hooks on This Machine (installed 2026-08-08)
+## Active Hooks on This Machine
 
 | Hook | Trigger | Purpose |
 | --- | --- | --- |
