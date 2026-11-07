@@ -1,0 +1,4 @@
+interface:
+  display_name: "AI Research Lead"
+  short_description: "Route AI research leadership work"
+  default_prompt: "Use $ai-research-lead to review an AI architecture, eval strategy, or model decision."

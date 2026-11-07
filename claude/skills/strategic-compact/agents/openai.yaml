@@ -1,0 +1,4 @@
+interface:
+  display_name: "Strategic Compact"
+  short_description: "Compress strategy into durable context"
+  default_prompt: "Use $strategic-compact to compress this strategy into durable context."

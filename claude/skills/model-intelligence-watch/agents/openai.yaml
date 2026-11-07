@@ -1,0 +1,4 @@
+interface:
+  display_name: "Model Intelligence Watch"
+  short_description: "Refresh model strategy continuously"
+  default_prompt: "Use $model-intelligence-watch to research current model options and refresh our AI strategy."

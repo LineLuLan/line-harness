@@ -1,0 +1,4 @@
+interface:
+  display_name: "SQLite"
+  short_description: "Build reliable SQLite data layers"
+  default_prompt: "Use $sqlite to implement this reliable SQLite data layer."

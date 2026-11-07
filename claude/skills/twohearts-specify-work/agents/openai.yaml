@@ -1,0 +1,7 @@
+interface:
+  display_name: "TwoHearts Specify Work"
+  short_description: "TwoHearts specs, tiers, scenarios, and DoD"
+  default_prompt: "Use $twohearts-specify-work to turn this request into a policy-compliant TwoHearts work specification."
+
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,4 @@
+interface:
+  display_name: "API Versioning"
+  short_description: "Plan compatible API evolution"
+  default_prompt: "Use $api-versioning to plan compatible API evolution and migration."

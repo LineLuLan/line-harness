@@ -1,0 +1,5 @@
+prefix_rule(pattern=["Get-Content", "-LiteralPath", "C:\\Users\\ADMIN\\.codex\\skills\\research\\SKILL.md", "-TotalCount", "120"], decision="allow")
+prefix_rule(pattern=["Get-Content", "-LiteralPath", "C:\\Users\\ADMIN\\.codex\\skills\\backend-ai-production-router\\SKILL.md", "-TotalCount", "80"], decision="allow")
+prefix_rule(pattern=["git", "add"], decision="allow")
+prefix_rule(pattern=["git", "commit"], decision="allow")
+prefix_rule(pattern=["C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", "-Command", "$root = (Resolve-Path '.').Path; $target = (Resolve-Path 'reports\\figures').Path; if (-not $target.StartsWith($root)) { throw \"Refusing to remove outside workspace: $target\" }; Get-ChildItem -LiteralPath $target -File -Filter '*.png' | Remove-Item -Force"], decision="allow")

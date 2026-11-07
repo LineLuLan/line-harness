@@ -1,0 +1,34 @@
+# Memory Index
+
+- [User là Line](user-line-identity.md) — máy này user luôn tên Line; xưng hô + docs + delegation đều dùng "Line"
+- [Line git authority](line-git-authority.md) — KHÔNG commit/push ở bất kỳ đâu trừ khi Line ra lệnh đích danh trong hội thoại hiện tại
+
+- [Codex AGENTS.md rules](codex-agents-rules.md) — shared "Autonomous Founder Engineer" operating + safety rules Claude follows for ecosystem consistency
+- [Codex/Claude ecosystem](codex-claude-ecosystem.md) — Codex = main coding (GPT-6 Sol for Skip/Standard-A, GPT-6 Astra for Standard-B/Important/Critical since 2026-09-28; exploration Luna max then Sol ultra); Claude Opus 5.5 high = supervisor default since 2026-09-28, Fable 5.1 via /model for L3 Important/Critical + hard root-cause; how to invoke `codex exec`
+- **GO-LIVE 2026-08-08**: máy chạy bank chung (75/78 skills) + Team AGENTS.md v1.0 + addendum §15 + plugin codex-rescue + hooks (delegation-reminder, codegraph-init-check) + codegraph indexed 7 TwoHearts repos; khôi phục từ D:\Backups\machine-snapshot-2026-08-08.zip (555MB); repo SKILLs-repository local KHÔNG push (chờ team)
+- [Codex setup overview](codex-setup-overview.md) — inventory of ~/.codex: config.toml, MCP servers, 128 skills, rules
+- [Claude mirrors Codex](claude-mirrors-codex.md) — .claude now mirrors .codex: CLAUDE.md imports AGENTS.md, 5 MCP servers wired, 128 skills copied (cx-code-review/cx-verify renamed)
+- [UltraThink statusline](ultrathink-statusline.md) — statusline v2 + 2026-09-07 fable wk bar, dispatch theo session, icon model; 2026-09-08 context-guard hook (ctx cache → cảnh báo 60/70/80 mỗi lượt)
+- [Background task keep-alive](background-task-keepalive.md) — user rule: keep session alive until background work finishes, report result, then continue (also in AGENTS.md §7)
+- [No AI co-author commits](no-ai-coauthor-commits.md) — từ 2026-08-08 commit KHÔNG kèm Co-Authored-By Claude (Line đổi quy ước, theo phe [teammate D])
+- [Line simple language](line-simple-language.md) — giải thích kiểu STE: câu ngắn, mỗi câu một ý, cả khi chat tiếng Việt
+- [Team spec style](team-spec-style.md) — spec/issue cho team: STE English, KHÔNG icon/emoji, bảng tự chứa đầy đủ, cc @handle
+- [TwoHearts PR target rule](twohearts-pr-target-rule.md) — NEVER open a PR into dev/main or any branch without asking the user for the target; fixed in twohearts-manage-github-flow skill
+- [TwoHearts skills policy alignment](twohearts-skills-policy-alignment.md) — 2026-07-31 realignment of 8 skills to the 9 policy docs; workspace charter wiring in all 7 repos; 64 controls verified; backend docs drift backlog
+- [No mass doc rewrites](no-mass-doc-rewrites.md) — user rule: doc standards apply forward-only; legacy drift → backlog report, never bulk-fix
+- [agent-coding backup repo](agent-coding-backup-repo.md) — private repo backup .claude+.codex tại D:\01_Workspaces\agent-coding; codex.cmd cắt prompt nhiều dòng (đã vá codex-do.ps1)
+- [Codex desktop lag cleanup](codex-desktop-lag-cleanup.md) — lag = giant session JSONLs; 2026-08-06 dọn 1.25GB, còn 8.18GB sessions 20–31/7 user giữ lại
+- [Skill tiering 2026-08](skill-tiering-2026-08.md) — 94/128 skills archived to single store ~/.codex/skills-archive; 34 active; −8.5k tokens/request; fetch+seq-thinking removed from Claude MCP
+- [RAM leak investigation](ram-leak-investigation.md) — ĐÓNG ÁN: zombie leak do driver AMD 780M 2023, fix = Adrenalin 26.7.1; còn: rollback OEM+Vanguard, hạ cap Docker
+- [learn skill](learn-skill.md) — skill `learn` (2026-08-27): HTML explainer 4 tầng, codegraph + context7 bắt buộc; CHƯA có trong KitsMap installer
+- [No Artifact delivery](no-artifact-delivery.md) — Line: KHÔNG BAO GIỜ deliver qua Claude Artifact; file HTML local + mở browser là sản phẩm cuối
+- [Codex GPT-6 Astra](codex-gpt6-astra.md) — 28/9 chốt: Skip + Standard-A = `gpt-6-sol` high (mặc định); Standard-B + Important + Critical = `gpt-6-astra` high (-Model); xhigh khi fail; khám phá Luna max rồi Sol ultra; reviewer Astra; ledger có tier con, xét sau 20 dòng Standard-B
+- [BSOD streak 2026-09](bsod-streak-2026-09.md) — 7/9: BIOS M3CN50WW xong, codec Realtek cài lại (chờ reboot), Vanguard On-Demand bỏ qua theo Line; theo dõi crash mới sau 02:00 7/9
+- [Codex sandbox ACL corruption](codex-sandbox-acl-corruption.md) — 2 lỗi sandbox: (a) "apply deny-read ACLs" = deny_read_acl_state.json 0 byte sau BSOD → move file; (b) 28/9 "setup refresh had errors" = CLI 0.157 quét AppDataocalopenai vấp path pnpm 301 k� tự → dời runtimesa_node ra d:backups
+- [Review gate](review-gate.md) — 2026-09-08 Line chốt: Standard = gates + supervisor (không lớp 2); Important + Critical: `codex review` Astra session mới (bắt buộc) + subagent Fable; ledger ~/.claude/state/review-ledger.log, xét lại sau 20 task
+- [Account switcher](account-switcher.md) — 28/9 xong phía Codex: codex-acc.ps1, mỗi tài khoản 1 CODEX_HOME dưới ~/.codex-accounts, đổi tay; phía Claude chưa làm (CLAUDE_CONFIG_DIR + resume)
+- [Codex multi-turn](codex-multi-turn.md) — 1/10: bỏ codex MCP (gỡ ở CLI 0.154); nhiều lượt = codex-do -Resume (session id lọc theo cwd); plugin rescue nuốt dấu \ → dùng / trong prompt
+- [Harness worker deaths](harness-worker-deaths.md) — 9/10: Claude Code giết cả cây tiến trình của lệnh nền khi dừng nó (đã thử nghiệm); worker phải khởi động qua WMI; Codex sub-agent làm hỏng resume
+- [Harness upgrade mandate](harness-upgrade-mandate.md) — 10/10 Line: cứ nâng cấp + fix bug harness đến nơi đến chốn, báo ngắn; vẫn hỏi trước việc ngoài harness/khó hoàn tác
+- [Không nói quá chắc](feedback-no-overclaim.md) — ghi rõ mức bằng chứng: đã kiểm trên máy / một nguồn / đoán; 14/10 lỡ khẳng định "Windows sẽ tự thay chứng chỉ"
+- [Harness reliability 12/10](harness-reliability-2026-10-12.md) — app Codex desktop khóa runtime -> sandbox từ chối mọi lệnh (đã tắt autostart + đóng app); task Scheduler bọc conhost --headless hết popup; hook chặn heredoc; preflight sandbox đang review

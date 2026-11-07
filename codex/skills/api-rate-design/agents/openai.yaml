@@ -1,0 +1,4 @@
+interface:
+  display_name: "API Rate Design"
+  short_description: "Design API rate and quota controls"
+  default_prompt: "Use $api-rate-design to design API rate limits and quota controls."

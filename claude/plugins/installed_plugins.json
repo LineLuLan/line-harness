@@ -1,0 +1,25 @@
+{
+  "version": 2,
+  "plugins": {
+    "codex@openai-codex": [
+      {
+        "scope": "user",
+        "installPath": "C:\\Users\\ADMIN\\.claude\\plugins\\cache\\openai-codex\\codex\\1.0.6",
+        "version": "1.0.6",
+        "installedAt": "2026-08-16T09:33:32.440Z",
+        "lastUpdated": "2026-08-16T09:33:32.440Z",
+        "gitCommitSha": "db52e28f4d9ded852ab3942cea316258ae4ef346"
+      }
+    ],
+    "eli5@claude-community": [
+      {
+        "scope": "user",
+        "installPath": "C:\\Users\\ADMIN\\.claude\\plugins\\cache\\claude-community\\eli5\\1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-08-27T10:02:43.091Z",
+        "lastUpdated": "2026-08-27T10:02:43.091Z",
+        "gitCommitSha": "a727be1c7bd6064419b6f60d71993a19198adc17"
+      }
+    ]
+  }
+}

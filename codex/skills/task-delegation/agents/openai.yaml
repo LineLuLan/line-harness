@@ -1,0 +1,4 @@
+interface:
+  display_name: "AI Task Delegation"
+  short_description: "Write precise AI tasks for the implementer"
+  default_prompt: "Use $task-delegation to turn an AI research decision into tasks for the implementer."

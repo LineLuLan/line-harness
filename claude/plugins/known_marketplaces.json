@@ -1,0 +1,26 @@
+{
+  "claude-plugins-official": {
+    "source": {
+      "source": "github",
+      "repo": "anthropics/claude-plugins-official"
+    },
+    "installLocation": "C:\\Users\\ADMIN\\.claude\\plugins\\marketplaces\\claude-plugins-official",
+    "lastUpdated": "2026-11-07T09:37:39.910Z"
+  },
+  "openai-codex": {
+    "source": {
+      "source": "github",
+      "repo": "openai/codex-plugin-cc"
+    },
+    "installLocation": "C:\\Users\\ADMIN\\.claude\\plugins\\marketplaces\\openai-codex",
+    "lastUpdated": "2026-08-16T09:33:13.685Z"
+  },
+  "claude-community": {
+    "source": {
+      "source": "github",
+      "repo": "anthropics/claude-plugins-community"
+    },
+    "installLocation": "C:\\Users\\ADMIN\\.claude\\plugins\\marketplaces\\claude-community",
+    "lastUpdated": "2026-08-27T10:02:34.787Z"
+  }
+}

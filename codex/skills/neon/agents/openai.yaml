@@ -1,0 +1,4 @@
+interface:
+  display_name: "Neon"
+  short_description: "Build with Neon Postgres"
+  default_prompt: "Use $neon to implement this Neon Postgres workflow."

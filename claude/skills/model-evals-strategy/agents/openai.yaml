@@ -1,0 +1,4 @@
+interface:
+  display_name: "Model Evals Strategy"
+  short_description: "Design model evaluation systems"
+  default_prompt: "Use $model-evals-strategy to design an eval plan for choosing the best model."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "pnpm"
+  short_description: "Manage packages and workspaces with pnpm"
+  default_prompt: "Use $pnpm to configure this pnpm package or workspace workflow."

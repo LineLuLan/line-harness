@@ -1,0 +1,7 @@
+auth.json
+.credentials.json
+.env
+.env.*
+*.bak-*
+*.log
+node_modules/

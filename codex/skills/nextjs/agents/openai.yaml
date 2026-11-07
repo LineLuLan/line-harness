@@ -1,0 +1,4 @@
+interface:
+  display_name: "Next.js"
+  short_description: "Build applications with Next.js"
+  default_prompt: "Use $nextjs to implement this Next.js application change."

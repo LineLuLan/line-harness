@@ -1,0 +1,4 @@
+interface:
+  display_name: "CX Code Review"
+  short_description: "Review code across correctness and risk"
+  default_prompt: "Use $cx-code-review to review this code for correctness and risk."

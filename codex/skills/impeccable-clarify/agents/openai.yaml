@@ -1,0 +1,4 @@
+interface:
+  display_name: "Impeccable Clarify"
+  short_description: "Clarify interface hierarchy and intent"
+  default_prompt: "Use $impeccable-clarify to clarify this interface hierarchy and intent."

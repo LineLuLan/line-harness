@@ -1,0 +1,4 @@
+interface:
+  display_name: "Impeccable Polish"
+  short_description: "Polish interface details and finish"
+  default_prompt: "Use $impeccable-polish to polish this interface and its final details."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "PostgreSQL"
+  short_description: "Design and optimize PostgreSQL systems"
+  default_prompt: "Use $postgresql to design or optimize this PostgreSQL workload."

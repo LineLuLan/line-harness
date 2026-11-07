@@ -1,0 +1,4 @@
+interface:
+  display_name: "Production Guard"
+  short_description: "Apply Production Guard guidance"
+  default_prompt: "Use $production-guard to apply its guidance to this task."

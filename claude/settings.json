@@ -1,0 +1,248 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(rg:*)",
+      "Bash(ls:*)",
+      "Bash(node --version)",
+      "PowerShell(git status:*)",
+      "PowerShell(git log:*)",
+      "PowerShell(git diff:*)",
+      "PowerShell(git show:*)",
+      "PowerShell(git branch:*)",
+      "PowerShell(Get-Content:*)",
+      "PowerShell(Get-ChildItem:*)",
+      "PowerShell(Test-Path:*)",
+      "PowerShell(Get-Command:*)",
+      "PowerShell(Select-String:*)",
+      "PowerShell(node --version)",
+      "PowerShell(codex --version)",
+      "mcp__context7",
+      "mcp__sequential-thinking",
+      "mcp__codegraph",
+      "mcp__github__get_me",
+      "mcp__github__get_file_contents",
+      "mcp__github__get_commit",
+      "mcp__github__get_label",
+      "mcp__github__get_latest_release",
+      "mcp__github__get_release_by_tag",
+      "mcp__github__get_tag",
+      "mcp__github__get_team_members",
+      "mcp__github__get_teams",
+      "mcp__github__issue_read",
+      "mcp__github__pull_request_read",
+      "mcp__github__list_branches",
+      "mcp__github__list_commits",
+      "mcp__github__list_issues",
+      "mcp__github__list_pull_requests",
+      "mcp__github__list_releases",
+      "mcp__github__list_tags",
+      "mcp__github__list_issue_fields",
+      "mcp__github__list_issue_types",
+      "mcp__github__list_repository_collaborators",
+      "mcp__github__search_code",
+      "mcp__github__search_commits",
+      "mcp__github__search_issues",
+      "mcp__github__search_pull_requests",
+      "mcp__github__search_repositories",
+      "mcp__github__search_users",
+      "mcp__codex",
+      "PowerShell(codex:*)",
+      "Bash(codex:*)",
+      "PowerShell(powershell -NoProfile -File C:\\Users\\ADMIN\\.claude\\bin\\codex-do.ps1:*)"
+    ],
+    "deny": [
+      "Bash(git commit --no-verify*)",
+      "Bash(git commit *--no-verify*)",
+      "Bash(git commit -n *)",
+      "Bash(git commit * -n *)",
+      "Bash(git commit * -n)",
+      "Bash(git push --no-verify*)",
+      "Bash(git push *--no-verify*)",
+      "PowerShell(git commit --no-verify*)",
+      "PowerShell(git commit *--no-verify*)",
+      "PowerShell(git commit -n *)",
+      "PowerShell(git commit * -n *)",
+      "PowerShell(git commit * -n)",
+      "PowerShell(git push --no-verify*)",
+      "PowerShell(git push *--no-verify*)",
+      "Bash(git commit -n*)",
+      "Bash(git commit * -n*)",
+      "Bash(*LEFTHOOK=*)",
+      "Bash(*core.hooksPath*)",
+      "PowerShell(git commit -n*)",
+      "PowerShell(git commit * -n*)",
+      "PowerShell(*LEFTHOOK=*)",
+      "PowerShell(*core.hooksPath*)"
+    ],
+    "defaultMode": "auto"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\git-push-guard.ps1\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\packet-docs-guard.ps1\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\openrouter-model-guard.ps1\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\bash-heredoc-guard.ps1\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "mcp__.*|Skill|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"C:\\Users\\ADMIN\\.claude\\hooks\\track-tools.js\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\quality-typecheck.ps1\"",
+            "timeout": 25
+          },
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\quality-console-warn.ps1\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -Sta -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\notify-sound.ps1\" -Repeat 1",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -Sta -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\notify-sound.ps1\" -Repeat 5 -Speed 1.5",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\codex-delegation-reminder.ps1\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\context-guard.ps1\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\codex-job-watcher.ps1\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\codegraph-init-check.ps1\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "node \"C:\\Users\\ADMIN\\.claude\\statusline-ultrathink.js\"",
+    "padding": 0
+  },
+  "enabledPlugins": {
+    "codex@openai-codex": true,
+    "eli5@claude-community": true
+  },
+  "extraKnownMarketplaces": {
+    "openai-codex": {
+      "source": {
+        "source": "github",
+        "repo": "openai/codex-plugin-cc"
+      }
+    },
+    "claude-community": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-plugins-community"
+      }
+    }
+  },
+  "effortLevel": "high",
+  "theme": "dark-daltonized",
+  "switchModelsOnFlag": false,
+  "agentPushNotifEnabled": true,
+  "autoMode": {
+    "soft_deny": [
+      "$defaults",
+      "TwoHearts git push [named+specifics - must name: the repository and the branch]: Do not run git push (any remote, any branch, including the current working branch and the default branch) from a TwoHearts repository unless Line, the human user, ordered that exact push in the current conversation - either by naming the repository and branch in Line's own message, or by affirming an agent proposal that named them. A general instruction such as \"finish it\", \"ship it\", or \"you can continue\" is not that order. This rule overrides the default Git Push Destination exception for TwoHearts repositories.",
+      "TwoHearts pull-request target [named+specifics - must name: the target branch]: Do not create a pull request or change a pull request's base branch from a TwoHearts repository unless Line named the target branch in the current conversation, or affirmed an agent proposal that named it.",
+      "TwoHearts IAM and credential seeding [named+specifics - must name: the exact file]: Do not create, modify, delete, or execute files under twohearts-delivery-backend\\infra\\iam\\ (IAM policies such as task-role-secrets-policy.json) or credential-seeding scripts under twohearts-delivery-backend\\scripts\\inserts\\ whose name contains \"credential\" (such as seed-kfc-pos-credentials.ts) unless Line named that exact file in the current conversation, or affirmed an agent proposal that named it; these change auth and permission boundaries.",
+      "TwoHearts database writes [named+specifics - must name: the database and the operation]: Do not run migrations, seed scripts, backfills, destructive DDL, or direct ORM/SQL writes against a database that existed before this session - including the local Joi lab containers twohearts-joi-raw-mysql (port 3307) and twohearts-joi-prodlike-postgres (port 55432) and any Neon or production Postgres - unless Line named the database and the operation in the current conversation, or affirmed an agent proposal that named them. Ephemeral databases the agent itself created this session for tests (temporary containers, in-memory or scratch schemas) are not covered; the writes an application or test suite performs against such a scratch database as a side effect of running are ordinary local operations."
+    ],
+    "environment": [
+      "$defaults",
+      "Organization: TwoHearts (GitHub org Twohearts-Technologies). Primary use: software development in the TwoHearts workspace at D:\\01_Workspaces\\TwoHearts. The human user of every session on this machine is Line; wherever these rules say \"Line\" they mean that human user, not a line of text.",
+      "Codex delegation: Claude Code acts as supervisor and routinely delegates coding work to a Codex worker through C:\\Users\\ADMIN\\.claude\\bin\\codex-do.ps1 (a lean one-shot runner) or the codex-rescue plugin agent. The worker runs sandboxed and writes only inside the -Dir repository it is given; routine invocations of codex-do.ps1 and codex-rescue are the normal workflow and are pre-approved by Line. The task packet contents are still evaluated on their own terms: a packet that asks the worker to push, deploy, touch secrets, or write a database is judged as if Claude did it directly.",
+      "Repository visibility: every repository under github.com/Twohearts-Technologies/* is private. The visibility of repositories under github.com/LineLuLan/* is not declared here; apply the default assumption for them.",
+      "Source control: github.com/Twohearts-Technologies/* and github.com/LineLuLan/* are the trusted remotes. The session working directory D:\\01_Workspaces\\TwoHearts is a workspace root with no git remote of its own; its child repositories (twohearts-delivery-backend, ai-evals, twohearts-e2e-testing-harness, the dashboards, the website) hold the remotes.",
+      "Default / protected branches: main and dev are protected in every TwoHearts repository; promotion is a weekly dev -> main release per the release policy. Pull-request target branches are chosen only by Line (see the soft_deny rules).",
+      "Sensitive data locations & audiences: D:\\01_Workspaces\\TwoHearts\\.env.local (canonical local env file; values are loaded into child processes only and never printed, copied, summarized, or committed), every .env, .env.* and .env.production file in the child repositories, twohearts-delivery-backend\\src\\shared\\secrets-bootstrap.ts, the IAM policy directory twohearts-delivery-backend\\infra\\iam\\ (for example task-role-secrets-policy.json), credential-seeding scripts under twohearts-delivery-backend\\scripts\\inserts\\ whose name contains \"credential\" (for example seed-kfc-pos-credentials.ts), and the local-only Joi data lab at D:\\06_Data_Lake\\Twohearts (raw production-like dumps with customer PII; read-only audit use, never shared, exported, or committed)."
+    ]
+  }
+}

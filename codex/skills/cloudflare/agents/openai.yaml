@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cloudflare"
+  short_description: "Build services on Cloudflare"
+  default_prompt: "Use $cloudflare to implement this Cloudflare service safely."

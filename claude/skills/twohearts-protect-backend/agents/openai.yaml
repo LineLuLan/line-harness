@@ -1,0 +1,7 @@
+interface:
+  display_name: "TwoHearts Backend Protection"
+  short_description: "Tenant, data, secret, and side-effect safety"
+  default_prompt: "Use $twohearts-protect-backend to assess and guard this TwoHearts backend change."
+
+policy:
+  allow_implicit_invocation: true

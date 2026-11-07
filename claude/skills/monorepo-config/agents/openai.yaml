@@ -1,0 +1,4 @@
+interface:
+  display_name: "Monorepo Config"
+  short_description: "Configure scalable monorepo tooling"
+  default_prompt: "Use $monorepo-config to configure this monorepo and its shared tooling."

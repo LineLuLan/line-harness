@@ -1,0 +1,7 @@
+interface:
+  display_name: "TwoHearts Policy Sync"
+  short_description: "Read-only TwoHearts policy and skill drift audit"
+  default_prompt: "Use $twohearts-sync-policy to audit TwoHearts policy sources and skill coverage for drift."
+
+policy:
+  allow_implicit_invocation: true

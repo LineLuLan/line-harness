@@ -1,0 +1,4 @@
+interface:
+  display_name: "Impeccable Harden"
+  short_description: "Harden interfaces against edge cases"
+  default_prompt: "Use $impeccable-harden to harden this interface against edge cases."

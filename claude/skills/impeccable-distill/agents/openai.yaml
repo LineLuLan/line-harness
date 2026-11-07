@@ -1,0 +1,4 @@
+interface:
+  display_name: "Impeccable Distill"
+  short_description: "Simplify interfaces to their essentials"
+  default_prompt: "Use $impeccable-distill to simplify this interface to its essentials."

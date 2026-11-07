@@ -1,0 +1,4 @@
+interface:
+  display_name: "API Designer"
+  short_description: "Design clear and stable APIs"
+  default_prompt: "Use $api-designer to design a clear and stable API contract."

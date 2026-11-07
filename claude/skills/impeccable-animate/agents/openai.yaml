@@ -1,0 +1,4 @@
+interface:
+  display_name: "Impeccable Animate"
+  short_description: "Improve interface motion and feedback"
+  default_prompt: "Use $impeccable-animate to improve interface motion and feedback."

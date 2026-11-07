@@ -1,0 +1,4 @@
+interface:
+  display_name: "GSD Verify"
+  short_description: "Apply GSD Verify guidance"
+  default_prompt: "Use $gsd-verify to apply its guidance to this task."

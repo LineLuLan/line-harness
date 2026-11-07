@@ -1,0 +1,4 @@
+interface:
+  display_name: "Customer Intelligence Memory"
+  short_description: "Design customer memory systems"
+  default_prompt: "Use $customer-intelligence-memory to design customer intelligence and memory architecture."

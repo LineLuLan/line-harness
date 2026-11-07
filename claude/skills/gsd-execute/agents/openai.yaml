@@ -1,0 +1,4 @@
+interface:
+  display_name: "GSD Execute"
+  short_description: "Apply GSD Execute guidance"
+  default_prompt: "Use $gsd-execute to apply its guidance to this task."

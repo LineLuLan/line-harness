@@ -1,0 +1,7 @@
+interface:
+  display_name: "TwoHearts Release Control"
+  short_description: "Fail-closed release, hotfix, and waiver gates"
+  default_prompt: "Use $twohearts-control-release to assess this TwoHearts release or hotfix without crossing authority gates."
+
+policy:
+  allow_implicit_invocation: true

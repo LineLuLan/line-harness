@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bun"
+  short_description: "Build and run projects with Bun"
+  default_prompt: "Use $bun to configure or troubleshoot this Bun workflow."

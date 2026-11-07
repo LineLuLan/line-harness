@@ -1,0 +1,7 @@
+interface:
+  display_name: "TwoHearts Delivery Verification"
+  short_description: "Scenario, test, AI-eval, and QA evidence gates"
+  default_prompt: "Use $twohearts-verify-delivery to build and run the right TwoHearts verification evidence."
+
+policy:
+  allow_implicit_invocation: true

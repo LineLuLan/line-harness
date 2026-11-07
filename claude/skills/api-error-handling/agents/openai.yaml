@@ -1,0 +1,4 @@
+interface:
+  display_name: "API Error Handling"
+  short_description: "Design consistent API errors"
+  default_prompt: "Use $api-error-handling to design consistent API error behavior."

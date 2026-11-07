@@ -1,0 +1,4 @@
+interface:
+  display_name: "Drizzle Kit"
+  short_description: "Manage Drizzle schemas and migrations"
+  default_prompt: "Use $drizzle-kit to manage this Drizzle schema or migration workflow."

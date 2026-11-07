@@ -1,0 +1,4 @@
+interface:
+  display_name: "Team Router"
+  short_description: "Route work to the right bank skill"
+  default_prompt: "Use $team-router to route this task to the smallest relevant skill set."

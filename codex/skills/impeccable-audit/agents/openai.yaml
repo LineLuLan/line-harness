@@ -1,0 +1,4 @@
+interface:
+  display_name: "Impeccable Audit"
+  short_description: "Audit interface design quality"
+  default_prompt: "Use $impeccable-audit to audit this interface for design quality."

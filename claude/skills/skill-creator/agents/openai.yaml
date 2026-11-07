@@ -1,0 +1,4 @@
+interface:
+  display_name: "Skill Creator"
+  short_description: "Create and update reusable skills"
+  default_prompt: "Use $skill-creator to create or improve a reusable skill package."

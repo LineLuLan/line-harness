@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tailwind"
+  short_description: "Style applications with Tailwind CSS"
+  default_prompt: "Use $tailwind to implement this Tailwind CSS design."

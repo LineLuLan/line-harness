@@ -1,0 +1,4 @@
+interface:
+  display_name: "Zod"
+  short_description: "Validate runtime data with Zod"
+  default_prompt: "Use $zod to define runtime validation for this data boundary."

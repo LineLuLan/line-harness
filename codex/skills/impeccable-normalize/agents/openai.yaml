@@ -1,0 +1,4 @@
+interface:
+  display_name: "Impeccable Normalize"
+  short_description: "Normalize interface consistency"
+  default_prompt: "Use $impeccable-normalize to normalize consistency across this interface."

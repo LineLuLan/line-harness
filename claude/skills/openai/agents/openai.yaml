@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenAI"
+  short_description: "Build with OpenAI APIs"
+  default_prompt: "Use $openai to implement this OpenAI API integration."

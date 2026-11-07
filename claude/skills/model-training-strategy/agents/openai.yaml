@@ -1,0 +1,4 @@
+interface:
+  display_name: "Model Training Strategy"
+  short_description: "Plan fine-tune and training choices"
+  default_prompt: "Use $model-training-strategy to decide whether to fine-tune, train, distill, or use retrieval."

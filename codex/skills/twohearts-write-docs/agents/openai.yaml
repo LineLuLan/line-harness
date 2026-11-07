@@ -1,0 +1,7 @@
+interface:
+  display_name: "TwoHearts Write Docs"
+  short_description: "TwoHearts documentation and memory policy"
+  default_prompt: "Use $twohearts-write-docs to write or update this documentation in TwoHearts plain-language style and pass the doc PR gates."
+
+policy:
+  allow_implicit_invocation: true

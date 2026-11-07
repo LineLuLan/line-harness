@@ -1,0 +1,4 @@
+interface:
+  display_name: "Conversation Data Preprocessing"
+  short_description: "Clean conversations for AI data"
+  default_prompt: "Use $conversation-data-preprocessing to clean real conversations into training and eval data."

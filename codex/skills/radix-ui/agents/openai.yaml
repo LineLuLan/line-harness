@@ -1,0 +1,4 @@
+interface:
+  display_name: "Radix UI"
+  short_description: "Build accessible UI primitives"
+  default_prompt: "Use $radix-ui to build accessible headless UI primitives."

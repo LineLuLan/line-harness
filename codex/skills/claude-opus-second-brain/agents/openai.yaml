@@ -1,0 +1,4 @@
+interface:
+  display_name: "Claude Opus Second Brain"
+  short_description: "Ask Claude Opus 5/Fable for plans and review"
+  default_prompt: "Use $claude-opus-second-brain to get an Opus 5 high plan, audit, or review before coding, with Fable 5 and Opus 4.8 fallbacks."

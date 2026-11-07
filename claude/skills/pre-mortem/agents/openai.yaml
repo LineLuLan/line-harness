@@ -1,0 +1,4 @@
+interface:
+  display_name: "Pre Mortem"
+  short_description: "Apply Pre Mortem guidance"
+  default_prompt: "Use $pre-mortem to apply its guidance to this task."

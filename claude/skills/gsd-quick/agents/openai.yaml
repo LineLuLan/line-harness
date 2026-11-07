@@ -1,0 +1,4 @@
+interface:
+  display_name: "GSD Quick"
+  short_description: "Apply GSD Quick guidance"
+  default_prompt: "Use $gsd-quick to apply its guidance to this task."

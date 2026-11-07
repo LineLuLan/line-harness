@@ -1,0 +1,4 @@
+interface:
+  display_name: "Issue Tree"
+  short_description: "Apply Issue Tree guidance"
+  default_prompt: "Use $issue-tree to apply its guidance to this task."

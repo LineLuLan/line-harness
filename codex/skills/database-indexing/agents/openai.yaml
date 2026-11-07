@@ -1,0 +1,4 @@
+interface:
+  display_name: "Database Indexing"
+  short_description: "Design and review database indexes"
+  default_prompt: "Use $database-indexing to design or review indexes for this workload."

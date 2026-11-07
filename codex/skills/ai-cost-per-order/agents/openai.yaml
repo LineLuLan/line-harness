@@ -1,0 +1,4 @@
+interface:
+  display_name: "AI Cost Per Order"
+  short_description: "Estimate AI unit economics"
+  default_prompt: "Use $ai-cost-per-order to estimate AI processing cost per order and optimize the architecture."

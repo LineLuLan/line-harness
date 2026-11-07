@@ -1,0 +1,4 @@
+interface:
+  display_name: "Line Engineering"
+  short_description: "Strict personal engineering standard"
+  default_prompt: "Use $line-engineering for strict-production non-TwoHearts engineering work."

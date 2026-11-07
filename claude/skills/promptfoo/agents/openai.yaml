@@ -1,0 +1,4 @@
+interface:
+  display_name: "Promptfoo"
+  short_description: "Evaluate and red-team AI systems"
+  default_prompt: "Use $promptfoo to evaluate or red-team this AI system."

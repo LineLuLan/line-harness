@@ -1,0 +1,4 @@
+interface:
+  display_name: "Reasoning Frameworks"
+  short_description: "Apply Reasoning Frameworks guidance"
+  default_prompt: "Use $reasoning-frameworks to apply its guidance to this task."

@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "default_policy_dir": "D:\\02_Organizations\\TwoHearts\\Policies\\Policies",
+  "files": [
+    {
+      "name": "0. TWOHEARTS_POLICY_HANDBOOK_VI.md",
+      "sha256": "95727159b8bfc14f7327adec6e6b881271eb2d99951754a36e87f5755363cef9",
+      "size": 50360,
+      "modified_utc": "2026-07-29T17:17:45.3504556Z"
+    },
+    {
+      "name": "1. Twohearts Collaboration & Contribution Policy.docx",
+      "sha256": "3b9b8d47c051699ce402f646dccc6ce03a3e7ffd15c2266b59f485c1a68f5030",
+      "size": 220732,
+      "modified_utc": "2026-07-27T18:19:16.0000000Z"
+    },
+    {
+      "name": "2. Dev Guide_ Branching & Releases.docx",
+      "sha256": "7994fb5744f3367696f6b2fc853fa8b2e0ef6db8db6a84fd2fcee6ccc7ed2220",
+      "size": 218075,
+      "modified_utc": "2026-07-27T21:46:58.0000000Z"
+    },
+    {
+      "name": "3. Dev Guide_ Testing & Enforcement.docx",
+      "sha256": "29b0a7e58f3ff36517b6d784a96af319e2d96162ebe1e04b87acfea49191db6b",
+      "size": 219507,
+      "modified_utc": "2026-07-27T18:53:16.0000000Z"
+    },
+    {
+      "name": "4. Guide_ Issues, Specs & PR Review.docx",
+      "sha256": "71a0b2bfd866468abcb78e71da5d5b8956acd03d00ad6a609bd5954f5c69b0ef",
+      "size": 224154,
+      "modified_utc": "2026-07-27T19:32:36.0000000Z"
+    },
+    {
+      "name": "5. Guide_ Product Intake & Sprints.docx",
+      "sha256": "f51f95bfe608758061fc7d87f48c241a84dee5bb09c92dab2448e9286b6f9860",
+      "size": 8368,
+      "modified_utc": "2026-07-27T18:51:18.0000000Z"
+    },
+    {
+      "name": "6. Engineering Standards.docx",
+      "sha256": "15305837050bbbc8971b64b8b8a37fa18cba1af8120928e85bebe74238edfa51",
+      "size": 387012,
+      "modified_utc": "2026-07-27T17:56:20.0000000Z"
+    },
+    {
+      "name": "7. QA Playbook.docx",
+      "sha256": "612c171421e1a2e65724b19c8e58de2ecea83145a02465669f008225a613197a",
+      "size": 9368,
+      "modified_utc": "2026-07-27T17:53:52.0000000Z"
+    }
+  ]
+}

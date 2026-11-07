@@ -1,0 +1,4 @@
+interface:
+  display_name: "Playwright"
+  short_description: "Build reliable browser tests"
+  default_prompt: "Use $playwright to build or repair reliable browser tests."

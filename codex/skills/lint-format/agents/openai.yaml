@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lint Format"
+  short_description: "Configure linting and formatting"
+  default_prompt: "Use $lint-format to configure or repair linting and formatting."

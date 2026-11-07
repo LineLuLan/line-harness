@@ -1,0 +1,4 @@
+interface:
+  display_name: "Vite"
+  short_description: "Configure fast Vite builds"
+  default_prompt: "Use $vite to configure or troubleshoot this Vite build."

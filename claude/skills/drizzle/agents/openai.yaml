@@ -1,0 +1,4 @@
+interface:
+  display_name: "Drizzle"
+  short_description: "Build type-safe data access with Drizzle"
+  default_prompt: "Use $drizzle to implement this type-safe database access."

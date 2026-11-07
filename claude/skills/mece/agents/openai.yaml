@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mece"
+  short_description: "Apply Mece guidance"
+  default_prompt: "Use $mece to apply its guidance to this task."

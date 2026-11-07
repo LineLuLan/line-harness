@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tool Calling Flow Audit"
+  short_description: "Audit agent tool-calling flows"
+  default_prompt: "Use $tool-calling-flow-audit to review whether backend tool calling follows the correct flow."

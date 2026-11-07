@@ -1,0 +1,4 @@
+interface:
+  display_name: "GSD Plan"
+  short_description: "Apply GSD Plan guidance"
+  default_prompt: "Use $gsd-plan to apply its guidance to this task."

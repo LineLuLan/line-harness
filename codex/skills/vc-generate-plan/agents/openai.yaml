@@ -1,0 +1,4 @@
+interface:
+  display_name: "VC Generate Plan"
+  short_description: "Create repository implementation plans"
+  default_prompt: "Use $vc-generate-plan to create or update a repository implementation plan."

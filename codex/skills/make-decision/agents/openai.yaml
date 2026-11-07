@@ -1,0 +1,4 @@
+interface:
+  display_name: "Make Decision"
+  short_description: "Apply Make Decision guidance"
+  default_prompt: "Use $make-decision to apply its guidance to this task."

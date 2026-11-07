@@ -1,0 +1,4 @@
+interface:
+  display_name: "AI SDK"
+  short_description: "Build applications with the AI SDK"
+  default_prompt: "Use $ai-sdk to implement this AI SDK integration."

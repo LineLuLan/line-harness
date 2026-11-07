@@ -1,0 +1,4 @@
+interface:
+  display_name: "CX Verify"
+  short_description: "Run a complete pre-PR verification"
+  default_prompt: "Use $cx-verify to run the repository pre-PR verification gate."

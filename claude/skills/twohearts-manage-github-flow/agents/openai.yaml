@@ -1,0 +1,7 @@
+interface:
+  display_name: "TwoHearts GitHub Flow"
+  short_description: "TwoHearts branch, issue, PR, and review gates"
+  default_prompt: "Use $twohearts-manage-github-flow to prepare this TwoHearts Git or GitHub workflow safely."
+
+policy:
+  allow_implicit_invocation: true

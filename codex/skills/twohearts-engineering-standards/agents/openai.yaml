@@ -1,0 +1,7 @@
+interface:
+  display_name: "TwoHearts Engineering Standards"
+  short_description: "Mandatory TwoHearts policy router and safety authority"
+  default_prompt: "Use $twohearts-engineering-standards to route and govern this TwoHearts task first."
+
+policy:
+  allow_implicit_invocation: true

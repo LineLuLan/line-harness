@@ -1,0 +1,4 @@
+interface:
+  display_name: "Turso"
+  short_description: "Build distributed SQLite with Turso"
+  default_prompt: "Use $turso to implement this Turso or libSQL workflow."

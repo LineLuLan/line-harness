@@ -1,0 +1,4 @@
+interface:
+  display_name: "Weighted Matrix"
+  short_description: "Compare options with weighted criteria"
+  default_prompt: "Use $weighted-matrix to compare these options with explicit weighted criteria."
