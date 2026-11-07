@@ -42,12 +42,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\restore.ps1          # dry
 powershell -NoProfile -ExecutionPolicy Bypass -File .\restore.ps1 -Apply   # copies files, backs up existing ones first
 ```
 
-`restore.ps1` does not touch `~/.claude.json`, credentials, or scheduled tasks. Do these steps by hand:
+`restore.ps1` also merges the five Claude MCP servers (context7, codegraph, github, neon, langfuse) into `~/.claude.json` through `claude/merge-mcp.js`. It adds only servers that are missing, keeps everything else in the file, and saves a backup first. Codex MCP servers come with `codex/config.toml`.
 
-1. Merge `claude/mcp-servers.json` into `~/.claude.json` and set your own tokens.
-2. Set the `GITHUB_PAT_TOKEN` environment variable (used by the GitHub MCP server on both sides).
+Do these steps by hand:
+
+1. Set the `GITHUB_PAT_TOKEN` environment variable. The GitHub MCP header uses `Bearer ${GITHUB_PAT_TOKEN}`; Claude Code documents `${VAR}` expansion for `.mcp.json`. If the server does not authenticate from `~/.claude.json`, put your token in that header directly.
+2. Neon signs in through OAuth on first use. Langfuse reads `LANGFUSE_*` keys from `D:\01_Workspaces\TwoHearts\.env.local` (see `claude/bin/langfuse-mcp-launch.ps1`); change that path if your keys are elsewhere.
 3. Sign in: `claude` and `codex login`.
-4. Import a scheduled task: `Register-ScheduledTask -Xml (Get-Content .\scheduled-tasks\MCP-Weekly-Update.xml -Raw) -TaskName MCP-Weekly-Update`.
+4. Plugins: `settings.json` enables `codex@openai-codex` and `eli5@claude-community` and lists their marketplaces. If Claude Code does not install them on first start, run `/plugin install codex@openai-codex` and `/plugin install eli5@claude-community`. Codex plugin packages are not in this repository; Codex downloads them from its marketplaces.
+5. Import a scheduled task: `Register-ScheduledTask -Xml (Get-Content .\scheduled-tasks\MCP-Weekly-Update.xml -Raw) -TaskName MCP-Weekly-Update`.
 
 The configs were captured on a machine whose user folder is `C:\Users\ADMIN`. With `-Apply`, `restore.ps1` rewrites that folder to your own user folder in `~/.claude/settings.json` (hooks and status line), `~/.codex/config.toml`, and `~/.codex/hooks.json`. The rule files (`CLAUDE.md`, `AGENTS.md`) still mention `C:\Users\ADMIN` as text.
 

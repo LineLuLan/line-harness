@@ -32,6 +32,9 @@ foreach ($m in $map) {
   else { Copy-Item -LiteralPath $src -Destination $dst -Force }
   "copied {0} -> {1}" -f $m[0], $dst
 }
+$mergeArgs = @((Join-Path $PSScriptRoot 'claude\merge-mcp.js'), (Join-Path $PSScriptRoot 'claude\mcp-servers.json'), "$h\.claude.json", $h)
+if ($Apply) { $mergeArgs += '--apply' }
+& node @mergeArgs
 if (-not $Apply) { 'Dry run only. Run again with -Apply to copy.'; return }
 # The configs were captured on a machine whose user folder is C:\Users\ADMIN; point them at this machine's folder.
 if ($h -ne 'C:\Users\ADMIN') {
