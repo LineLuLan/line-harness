@@ -17,7 +17,7 @@ The shared rulebook is `~/.codex/AGENTS.md` (team policy version 1.0 plus Line's
 - Two bank skills carry the `cx-` prefix on this side (`cx-code-review`, `cx-verify`) because the plain names collide with Claude Code built-ins.
 - MCP servers, verdicts, and usage rules: `D:\01_Workspaces\SKILLs-repository\_shared\MCP-GUIDE.md`. Active here: context7, github, codegraph, langfuse, neon, plus claude.ai connectors. fetch, sequential-thinking, and codex (MCP; `codex mcp-server` removed from Codex CLI, retired 2026-10-01) are removed.
 
-## Worker Dispatch (this machine)
+## Worker Dispatch
 
 Two paths; pick by task shape:
 
@@ -39,7 +39,7 @@ Print the full task packet before every dispatch. Verify worker output against t
 
 Shell commands (2026-10-09): long or multi-line commands go through the PowerShell tool or a script file, never the Bash tool (Bash fails with `unexpected EOF` on long commands, also for Line's `!` commands; enforced 2026-10-12 by the PreToolUse hook bash-heredoc-guard.ps1, which denies Bash heredocs). Scheduled tasks must launch through `conhost.exe --headless`, or Windows Terminal opens a window. Claude Code kills the whole process tree of a background task when that task stops (Esc, session end, low memory; verified 2026-10-09 by experiment): never start a long-lived process with Start-Process from a background task; codex-do launches detached through WMI for that reason.
 
-## Model Routing (decided by Line, 2026-08-08; Astra trial 09-06 to 09-08 rolled back over the shared weekly allowance; 2026-09-28 Line moved to the GPT-6 line: Sol for Skip and Standard-A, Astra for Standard-B, Important, Critical; exploration Luna max then Sol ultra)
+## Model Routing
 
 Supervisor (Line, 2026-09-28): Claude Opus 5.5 high is the session default (settings.json `claude-opus-5-5[1m]`, `effortLevel: high` - Opus 5.5 defaults to medium, keep it explicit). Switch to Claude Fable 5.1 with `/model` for layer-3 verification at Important and Critical, hard root-cause work, and architecture decisions; the layer-2b subagent stays Fable 5.1 so it differs from the worker. Reason: the Fable weekly quota hit 96% on 2026-09-28 while the shared weekly pool sat at 51%. Within a tier, do not downgrade further for cost; supervisor tokens buy judgment.
 
@@ -62,11 +62,11 @@ xhigh policy - use `gpt-6-astra` xhigh ONLY for: (1) extremely dangerous work (s
 
 Hard-work phase map (algorithm, debugging, integration, phase-by-phase owners): `D:\01_Workspaces\SKILLs-repository\CLAUDE.md`, section "Hard Work - Phase Map".
 
-## Paid API Budget (decided by Line, 2026-10-25)
+## Paid API Budget
 
 OpenRouter credits (`OPENROUTER_API_KEY` in `.env.local`) pay for exactly one thing: runs of the model under test, `openai/gpt-6-luna` (classifier + chat in eval v3). Nothing else goes to OpenRouter: no judge panel, no labelling, no probe of another model, no "pilot". Judge panels (Opus 5.5, GPT-6 Astra, GPT-6 Sol, GPT-6.1 Sol) run on subscription quota as Claude CLI subagents (Agent tool, model opus) and Codex sessions (codex-do packets), as the 2026-10-08 panel did. "chạy" or "chạy pilot" never widens this; an exception exists only when Line names the model and the budget in the current conversation, and the command then carries `OPENROUTER_GUARD_OVERRIDE=1`. Enforced by the PreToolUse hook `hooks/openrouter-model-guard.ps1` (denies `label-judges.mjs` real runs, `run-panel.ps1`, and any OpenRouter command naming a non-Luna model id). Incident: 2026-10-25, a 40-row judge pilot sent to OpenRouter cost 0.94 USD from the wallet.
 
-## Review Gate (decided by Line, 2026-09-07)
+## Review Gate
 
 The implementer never grades itself. Three layers, each of a different nature, and the supervisor layer is mandatory at every tier (Line, 2026-09-08: "Codex checking Codex can both be wrong"):
 
@@ -91,7 +91,7 @@ Review ledger (decided 2026-09-08): after every delegated task append one line t
 
 Under 60 percent: proceed. 60-69: checkpoint. 70-79: offer `/handoff` before a major task. 80 or more: handoff or fresh session is mandatory. Enforced by the `context-guard.ps1` prompt hook since 2026-09-08: the statusline writes the percentage it renders to a cache the hook reads. Compaction rules: the `strategic-compact` skill.
 
-## Timeout Doctrine (from [teammate D]'s liveness rule, extended 2026-08-09)
+## Timeout Doctrine
 
 Measure heartbeats, not wall clocks. A slow job and a dead job are different things.
 
@@ -117,7 +117,7 @@ Output diet — command output is context budget (from [teammate N]'s RTK princi
 - Never paste a full log when one summary line answers the question.
 - Read files by line range when the target is known. Do not read whole files to explore.
 
-## Interview-First Rule (approved by Line, 2026-08-09)
+## Interview-First Rule
 
 Before starting work, interview Line with concrete options (plan-mode style: 2-4 questions, each with choices, the recommended choice first) when ANY of these is true:
 
@@ -135,7 +135,7 @@ Otherwise do not ask. Clear bounded tasks proceed directly. Minor choices (namin
 4. Check context usage before a major task.
 5. State the plan before the first tool call.
 
-## Active Hooks on This Machine (installed 2026-08-08)
+## Active Hooks on This Machine
 
 | Hook | Trigger | Purpose |
 | --- | --- | --- |
