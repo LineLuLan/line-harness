@@ -1,0 +1,9 @@
+*.db
+*.db-*
+.tmp/
+node_modules/
+# worker process files (packets, amendments, plans, handoffs) stay local
+.handoff/
+AMENDMENT-*.md
+PACKET-*.md
+PLAN.md
