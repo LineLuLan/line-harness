@@ -74,7 +74,7 @@ test('v10: v9 migration preserves rows, adds TEXT columns, backs up, flags once 
   parsers.ledger(s, '2026-11-15|Important|yes|0|0|0|kept', { id: 'kept' });
   parsers.review(s, { verdict: 'PASS' }, { id: 'kept', ts: 1 }); downgrade(s);
   assert.ok(fs.existsSync(backupBeforeMigration(file, 9)));
-  s = open(); assert.equal(SCHEMA_VERSION, 10); assert.equal(s.meta('schema_version'), '10');
+  s = open(); assert.equal(SCHEMA_VERSION, 11); assert.equal(s.meta('schema_version'), '11');
   for (const [table, column] of [['ledger', 'layer2_raw'], ['reviews', 'mode']]) {
     assert.ok(s.all(`PRAGMA table_info(${table})`).some(x => x.name === column && x.type === 'TEXT'));
     assert.equal(s.get(`SELECT COUNT(*) n FROM ${table}`).n, 1);

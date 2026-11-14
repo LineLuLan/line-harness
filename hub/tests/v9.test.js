@@ -30,7 +30,7 @@ test('v9: actual v8 schema migrates with data, column before index, replay once,
   old.exec("INSERT INTO meta VALUES ('schema_version','8'); INSERT INTO names VALUES (1,'model','gpt-6-sol'); INSERT INTO runs (run_id,model,is_resume,started,sandbox_failure,day) VALUES ('kept',1,0,1,0,'2026-11-14')");
   old.close();
   let s = open();
-  assert.equal(SCHEMA_VERSION, 10); assert.equal(s.meta('schema_version'), '10');
+  assert.equal(SCHEMA_VERSION, 11); assert.equal(s.meta('schema_version'), '11');
   assert.equal(s.get("SELECT run_id FROM runs WHERE run_id='kept'").run_id, 'kept');
   assert.ok(s.all('PRAGMA table_info(runs)').some(x => x.name === 'spec_sha' && x.type === 'TEXT'));
   assert.ok(s.all('PRAGMA index_list(runs)').some(x => x.name === 'runs_spec_sha'));

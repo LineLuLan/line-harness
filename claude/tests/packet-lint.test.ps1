@@ -1,7 +1,16 @@
 . (Join-Path $PSScriptRoot 'test-lib.ps1')
 . (Join-Path $PSScriptRoot '..\bin\packet-lint.ps1')
+# Isolation: tests without -Ontology must not read the repo ontology's certified lessons.
+$noLessons = Join-Path ([IO.Path]::GetTempPath()) ('lint-nolessons-' + [guid]::NewGuid().ToString('N') + '.json')
+[IO.File]::WriteAllText($noLessons, '{"lessons":[]}')
+$script:realTestPacket = ${function:Test-Packet}
+function Test-Packet {
+  param([AllowEmptyString()][string]$Text, [switch]$AllowLarge, [string]$Ontology = $noLessons)
+  & $script:realTestPacket -Text $Text -AllowLarge:$AllowLarge -Ontology $Ontology
+}
 $packet = @'
 TIER: Important
+TYPE: config
 PACKET CHECK: ok
 CHECKLIST: ok
 DOCS CHECKED: n/a - built-ins
@@ -67,4 +76,74 @@ foreach ($prose in @('make sure','go through','find the errors','make certain ev
 foreach ($command in @('make test','go test ./...','find /n "word" file.txt')) {
   Assert-True ((Test-Packet ($packet.Replace('- powershell -File tests/a.ps1',$command))).ok) "keep executable syntax: $command"
 }
+$ontology = Join-Path $PSScriptRoot 'fixtures/packet-lessons.json'
+$result = Test-Packet $packet -Ontology $ontology
+Assert-True (-not $result.ok -and $result.errors.Count -eq 1 -and $result.errors[0] -match '\[resolve-conflicts\]') 'Important requires applicable lesson'
+$covered = $packet + "`nKNOWN PITFALLS:`n- [resolve-conflicts] Resolve conflicting requirements."
+$result = Test-Packet $covered -Ontology $ontology
+Assert-True ($result.ok -and $result.warnings.Count -eq 0) 'applicable lesson present is clean; draft and deprecated ignored'
+$result = Test-Packet ($packet.Replace('Important','Critical')) -Ontology $ontology
+Assert-True (-not $result.ok) 'Critical requires applicable lesson'
+$result = Test-Packet ($packet.Replace('Important','Standard-B')) -Ontology $ontology
+Assert-True ($result.ok -and $result.warnings.Count -eq 1 -and $result.warnings[0] -match '\[resolve-conflicts\]') 'Standard-B missing lesson warns only'
+Assert-True ((Test-Packet ($packet.Replace('TYPE: config','TYPE: ui')) -Ontology $ontology).ok) 'type filter excludes config lesson'
+Assert-True ((Test-Packet ($packet.Replace('Important','Exploration')) -Ontology $ontology).ok) 'tier filter excludes lesson'
+Assert-True (-not (Test-Packet ($packet + "`nCONTEXT: [resolve-conflicts]") -Ontology $ontology).ok) 'lesson outside pitfalls does not count'
+Assert-True (-not (Test-Packet ($packet + "`nKNOWN PITFALLS: [resolve-conflicts-extra]") -Ontology $ontology).ok) 'lesson id must match exactly'
+$inline = $packet.Replace('TIER: Important', 'TIER: Important | worker=example | TYPE: config | Dir = root')
+# Remove the standalone type with either source line ending.
+$inline = [regex]::Replace($inline, '(?m)^TYPE: config\r?\n', '')
+Assert-True (-not (Test-Packet $inline -Ontology $ontology).ok) 'inline TYPE and first tier token select lesson'
+Assert-True (-not (Test-Packet ($inline + "`nTYPE: ui") -Ontology $ontology).ok) 'inline TYPE takes precedence over standalone TYPE'
+foreach ($body in @('type: ui', 'Type: ui', 'TYPE: document the format', ' TYPE: ui', '- TYPE: ui', 'TYPE: UI', 'TYPE: ui')) {
+  $bodyPacket = $inline.Replace('- powershell -File tests/a.ps1', ($body + "`n- powershell -File tests/a.ps1"))
+  $result = Test-Packet $bodyPacket -Ontology $ontology
+  Assert-True ($result.errors.Count -eq 1 -and $result.errors[0] -match '\[resolve-conflicts\]') "TYPE body preserves VALIDATE and inline type: $body"
+}
+foreach ($typeHeading in @('TYPE: config', '## TYPE: config', '**TYPE**: config', '**TYPE:** config', '**TYPE: config**', '## **TYPE:** config')) {
+  $typed = [regex]::Replace($packet, '(?m)^TYPE: config\r?\n', '')
+  $typed = $typed.Replace('- powershell -File tests/a.ps1', ($typeHeading + "`n- powershell -File tests/a.ps1"))
+  $result = Test-Packet $typed -Ontology $ontology
+  Assert-True ($result.errors.Count -eq 1 -and $result.errors[0] -match '\[resolve-conflicts\]' -and $result.warnings.Count -eq 0) "standalone TYPE never closes VALIDATE: $typeHeading"
+}
+foreach ($tierValue in @('Important,', 'important', 'Important.', 'Critical/Important', 'CRITICAL')) {
+  $result = Test-Packet ($packet.Replace('Important', $tierValue)) -Ontology $ontology
+  Assert-True ($result.errors.Count -eq 1 -and $result.errors[0] -match '\[resolve-conflicts\]') "tier normalization enforces lesson: $tierValue"
+  $result = Test-Packet ($covered.Replace('Important', $tierValue)) -Ontology $ontology
+  Assert-True ($result.ok -and $result.warnings.Count -eq 0) "covered normalized tier is clean: $tierValue"
+  $result = Test-Packet ($covered.Replace('Important', $tierValue).Replace('CHECKLIST: ok', '')) -Ontology $ontology
+  Assert-True ($result.errors -contains 'Missing CHECKLIST: ok.') "normalized tier retains checklist rule: $tierValue"
+}
+$untyped = [regex]::Replace($packet, '(?m)^TYPE: config\r?\n', '')
+foreach ($body in @('type: config', 'Type: config', 'TYPE: config prose', ' TYPE: config', '- TYPE: config', 'TYPE: CONFIG', '## Type: config')) {
+  $bodyPacket = $untyped.Replace('- powershell -File tests/a.ps1', ($body + "`n- powershell -File tests/a.ps1"))
+  $result = Test-Packet $bodyPacket -Ontology $ontology
+  Assert-True ($result.ok -and $result.warnings.Count -eq 1 -and $result.warnings[0] -eq 'add TYPE: to receive typed lessons') "body TYPE lookalike is not metadata: $body"
+}
+$result = Test-Packet $untyped -Ontology $ontology
+Assert-True ($result.ok -and $result.warnings -contains 'add TYPE: to receive typed lessons') 'untyped Important warns and skips typed lessons'
+$result = Test-Packet ($untyped.Replace('Important','Standard-B')) -Ontology $ontology
+Assert-True ($result.ok -and $result.warnings.Count -eq 0) 'untyped standard skips typed lessons quietly'
+$result = Test-Packet ($packet.Replace('TYPE: config','TYPE: unknown')) -Ontology $ontology
+Assert-True ($result.ok -and $result.warnings[0] -match 'Unknown TYPE') 'unknown TYPE warns'
+Assert-True ((Test-Packet $packet -Ontology (Join-Path $PSScriptRoot 'fixtures/missing-ontology.json')).ok) 'missing ontology skips lesson checks'
+$folder = New-TestFolder
+try {
+  $file = Join-Path $folder 'ontology.json'
+  [IO.File]::WriteAllText($file, '{}')
+  Assert-True ((Test-Packet $packet -Ontology $file).ok) 'missing lessons block skips checks'
+  $o = Get-Content -Raw $ontology | ConvertFrom-Json
+  $o.lessons[0].appliesTo = @{ types = @('*'); tiers = @('*') }
+  [IO.File]::WriteAllText($file, ($o | ConvertTo-Json -Depth 10))
+  Assert-True (-not (Test-Packet $untyped -Ontology $file).ok) 'wildcard lesson applies without TYPE'
+  $result = Test-Packet ($untyped.Replace('Important','Skip')) -Ontology $file
+  Assert-True ($result.ok -and $result.warnings.Count -eq 1) 'wildcard lesson applies to Skip as warning'
+  foreach ($badJson in @('{"lessons": [', '{"lessons":[],"Lessons":[]}')) {
+    [IO.File]::WriteAllText($file, $badJson)
+    $result = $null
+    try { $result = Test-Packet $packet -Ontology $file } catch { }
+    Assert-True ($null -ne $result -and $result.ok -and $result.errors.Count -eq 0 -and
+      $result.warnings.Count -eq 1 -and $result.warnings[0] -eq 'ontology unreadable: lesson checks skipped') 'malformed ontology returns one warning under Stop'
+  }
+} finally { Remove-TestFolder $folder }
 Complete-Tests

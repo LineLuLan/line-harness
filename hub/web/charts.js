@@ -140,11 +140,15 @@ export function Chart({ days, series, height = 230, y2 = null, stacked = false, 
     const x = days.map((_, i) => i);
     let values = series.map(s => s.data.map(v => (v === null || v === undefined ? null : v)));
     if (stacked) {
-      // Cumulative bars, drawn back to front so each segment shows its own share.
+      // Intent: accumulate primary-axis bars only; mixed lines/y2 keep their measured values.
+      // Status: H11 regression covered. Next: host canvas check. Blockers: none. Confidence: recorded plot data.
       const acc = x.map(() => 0);
-      values = values.map(col => col.map((v, i) => (acc[i] += v || 0)));
+      values = values.map((col, k) => series[k].kind === 'bar' && series[k].scale !== 'y2'
+        ? col.map((v, i) => (acc[i] += v || 0)) : col);
     }
-    const order = stacked ? [...series.keys()].reverse() : [...series.keys()];
+    const primaryBars = series.map((s, i) => s.kind === 'bar' && s.scale !== 'y2' ? i : -1).filter(i => i >= 0);
+    // Draw cumulative bars back to front, then overlay the unstacked lines/secondary series.
+    const order = stacked ? [...primaryBars].reverse().concat([...series.keys()].filter(i => !primaryBars.includes(i))) : [...series.keys()];
     const barKeys = series.map((s, i) => (s.kind === 'bar' ? i : -1)).filter(i => i >= 0);
     const paired = !stacked && barKeys.length === 2;
     const opts = {

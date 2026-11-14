@@ -176,6 +176,37 @@ function review(store, row, ctx) {
     verdict: store.intern('status', ['PASS', 'FAIL', 'UNKNOWN'].includes(row.verdict) ? row.verdict : 'UNKNOWN'),
     p0: counts[0], p1: counts[1], p2: counts[2], p3: counts[3] }, '(id) DO UPDATE SET project=excluded.project, mode=excluded.mode');
 }
+/* Intent: remove absolute paths embedded in finding titles before the storage cap.
+ * Status: quoted paths keep spaces; unquoted directory segments may contain spaces.
+ * Next: none. Blockers: none. Confidence: Windows/POSIX title privacy fixtures. */
+function findingTitle(title) {
+  if (typeof title !== 'string') return null;
+  return title.replace(/(["'`])((?:[A-Za-z]:[\\/]|\/(?:Users|home)\/)[^\r\n]*?)\1/g,
+    (_, quote, file) => quote + file.replace(/[\\/]+$/, '').split(/[\\/]/).pop() + quote)
+    .replace(/(?:[A-Za-z]:[\\/]|\/(?:Users|home)\/)(?:(?:(?!\s+(?:[A-Za-z]:[\\/]|\/(?:Users|home)\/))[^\r\n"'`<>|:*?\\/])+[\\/])*[^\s"'`<>|()[\],;\\/]*/g,
+      file => file.replace(/[\\/]+$/, '').split(/[\\/]/).pop())
+    .slice(0, 200);
+}
+
+/* Intent: upsert typed finding metadata without quotes or path fields. Status: v11.
+ * Next: category reporting. Blockers: none. Confidence: malformed, privacy and replay fixtures. */
+function finding(store, row, ctx) {
+  const kind = row.kind === undefined ? 'finding' : row.kind;
+  if (typeof row.id !== 'string' || !row.id.trim() || ![1, 2, 3].includes(row.layer)
+    || !['finding', 'format-violation'].includes(kind)
+    || !(typeof row.severity === 'string' && /^P[0-3]$/.test(row.severity)
+      || kind === 'format-violation' && row.severity === null)) {
+    store.addMeta('finding_warnings', 1);
+    return;
+  }
+  const record = { id: row.id, ts: v.epoch(row.utc, ctx.ts), source: v.name(row.source)?.slice(0, 64) ?? null, kind,
+    layer: row.layer, severity: row.severity, category: typeof row.category === 'string' ? row.category.slice(0, 64) : null,
+    title: findingTitle(row.title),
+    criterion: v.name(row.criterion)?.slice(0, 64) ?? null, reviewer: v.name(row.reviewer)?.slice(0, 64) ?? null, project: store.intern('project', repoOf(row.dir)),
+    spec_sha: v.name(row.specSha), run_id: v.name(row.runId) };
+  const keys = Object.keys(record).filter(k => k !== 'id');
+  store.insert('findings', record, `(id) DO UPDATE SET ${keys.map(k => `${k}=excluded.${k}`).join(',')}`);
+}
 function dispatch(store, text, ctx) {
   const parts = text.split('|');
   if (parts.length < 4 || !/^\d+$/.test(parts[0])) return false;
@@ -244,4 +275,4 @@ function system(store, row) {
     }
   }
 }
-module.exports = { claude, codex, review, dispatch, ledger, quota, system, FOLDERS };
+module.exports = { claude, codex, review, finding, dispatch, ledger, quota, system, FOLDERS };

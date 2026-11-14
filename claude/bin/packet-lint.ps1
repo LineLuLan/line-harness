@@ -1,17 +1,49 @@
+# Intent: use CHECKLIST's case-insensitive word boundary for lesson tiers too.
+# Status: complete. Next: none. Blockers: none. Confidence: punctuation and case fixtures.
+function Get-PacketTier {
+  param([string]$Value)
+  foreach ($name in @('Skip','Standard-A','Standard-B','Important','Critical','Exploration')) {
+    if ($Value -match ('^\s*' + [regex]::Escape($name) + '\b')) { return $name }
+  }
+  return ($Value.Trim() -split '[\s|]+', 2)[0]
+}
+
+# Intent: keep lint and generated blocks on the same certified lesson selection.
+# Status: complete. Next: P3 lesson certification. Blockers: none. Confidence: fixture tests.
+function Get-ApplicablePacketLessons {
+  param([object[]]$Lessons, [string]$Tier, [string]$Type)
+  $Tier = Get-PacketTier $Tier
+  foreach ($lesson in $Lessons) {
+    if ($null -eq $lesson -or $lesson.status -cne 'certified') { continue }
+    if (($lesson.appliesTo.tiers -contains '*' -or $lesson.appliesTo.tiers -contains $Tier) -and
+        ($lesson.appliesTo.types -ccontains '*' -or ($Type -and $lesson.appliesTo.types -ccontains $Type))) {
+      $lesson
+    }
+  }
+}
+
 # Intent: reject incomplete packets before spending a worker run.
-# Status: pure, dot-sourceable lint. Next: supervisor installs after review.
+# Status: dot-sourceable lint with local ontology input. Next: supervisor installs after review.
 # Blockers: none. Confidence: packet fixtures cover headings, commands and byte limits.
 function Test-Packet {
-  param([AllowEmptyString()][string]$Text, [switch]$AllowLarge)
+  param([AllowEmptyString()][string]$Text, [switch]$AllowLarge,
+    [string]$Ontology = (Join-Path $PSScriptRoot '..\ontology\harness.ontology.json'))
   $errors = New-Object 'Collections.Generic.List[string]'
   $warnings = New-Object 'Collections.Generic.List[string]'
   $sections = @{}
-  $keys = 'GOAL|BUSINESS REASON|CONTEXT|SUCCESS CRITERIA|FILES|PATTERNS|CONSTRAINTS|NON-GOALS|DONE WHEN|VALIDATE|STOP RULES|ROLLBACK|TIER|PACKET CHECK|CHECKLIST|DOCS CHECKED'
+  $keys = 'GOAL|BUSINESS REASON|CONTEXT|SUCCESS CRITERIA|FILES|PATTERNS|CONSTRAINTS|NON-GOALS|DONE WHEN|VALIDATE|STOP RULES|ROLLBACK|TIER|KNOWN PITFALLS|PACKET CHECK|CHECKLIST|DOCS CHECKED'
   $heading = '(?i)^[#>*\s-]*(?<key>(?:' + $keys + ')(?:\s*/\s*(?:' + $keys + '))*)(?:\*\*)?\s*(?:\([^)\r\n]*\)\s*)?:\s*(?:\*\*)?\s*(?<value>.*)$'
   $current = ''
   $tier = $null
+  $inlineType = $null
+  $type = $null
   $markers = @{}
   foreach ($line in ($Text -split '\r?\n')) {
+    # TYPE is metadata, never a section boundary; lowercase prose remains body text.
+    if ($line -cmatch '^(?:## )?(?:\*\*)?TYPE(?:\*\*)?:(?:\*\*)? (?<type>[a-z][a-z0-9-]*)(?:\*\*)?$') {
+      if ($null -eq $type) { $type = $Matches['type'] }
+      continue
+    }
     if ($line -match $heading) {
       $current = @($Matches['key'].ToUpperInvariant() -split '\s*/\s*')
       $value = $Matches['value']
@@ -19,9 +51,33 @@ function Test-Packet {
         if ($key -in @('PACKET CHECK','CHECKLIST') -and $value -match '^ok\b') { $markers[$key] = $true }
         if (-not $sections.ContainsKey($key)) { $sections[$key] = New-Object 'Collections.Generic.List[string]' }
         $sections[$key].Add($value)
-        if ($key -eq 'TIER' -and $null -eq $tier) { $tier = $value }
+        if ($key -eq 'TIER' -and $null -eq $tier) {
+          $tier = Get-PacketTier $value
+          if ($value -match '(?i)\|\s*TYPE:\s*([^|]+)(?:\||$)') { $inlineType = $Matches[1].Trim() }
+        }
       }
     } elseif ($current) { foreach ($key in $current) { $sections[$key].Add($line) } }
+  }
+  if ($null -ne $inlineType) { $type = $inlineType }
+  if ($type -and @('ui','collector','review','research','docs','config','other') -cnotcontains $type) {
+    $warnings.Add("Unknown TYPE: $type.")
+  }
+  if (-not $type -and $tier -in @('Important','Critical')) { $warnings.Add('add TYPE: to receive typed lessons') }
+  $knowledge = $null
+  try {
+    if (Test-Path -LiteralPath $Ontology -PathType Leaf -ErrorAction Stop) {
+      $knowledge = Get-Content -LiteralPath $Ontology -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    }
+  } catch { $warnings.Add('ontology unreadable: lesson checks skipped') }
+  if ($null -ne $knowledge) {
+    $pitfalls = ''
+    if ($sections.ContainsKey('KNOWN PITFALLS')) { $pitfalls = $sections['KNOWN PITFALLS'] -join "`n" }
+    foreach ($lesson in @(Get-ApplicablePacketLessons -Lessons $knowledge.lessons -Tier $tier -Type $type)) {
+      if (-not $pitfalls.Contains('[' + $lesson.id + ']')) {
+        $message = "KNOWN PITFALLS missing certified lesson [$($lesson.id)]."
+        if ($tier -in @('Important','Critical')) { $errors.Add($message) } else { $warnings.Add($message) }
+      }
+    }
   }
   foreach ($name in @('GOAL','SUCCESS CRITERIA','FILES','CONSTRAINTS','DONE WHEN','VALIDATE','STOP RULES','DOCS CHECKED')) {
     if (-not $sections.ContainsKey($name)) { $errors.Add("Missing ${name}: heading.") }

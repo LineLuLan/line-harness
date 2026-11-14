@@ -25,6 +25,8 @@ function Invoke-Review([string]$Name, [string[]]$ReviewArgs) {
   # Intent: one compact log per invocation, without prompt/diff leakage. Status: regression assertions.
   # Next: supervisor review. Blockers: none. Confidence: real JSONL reads after every child exit.
   $before = if (Test-Path -LiteralPath $env:CODEX_REVIEW_LOG -PathType Leaf) { [IO.File]::ReadAllText($env:CODEX_REVIEW_LOG) } else { '' }
+  $factsPath = Join-Path (Split-Path -Parent $env:CODEX_REVIEW_LOG) 'findings.jsonl'
+  $factsBefore = if (Test-Path -LiteralPath $factsPath -PathType Leaf) { [IO.File]::ReadAllText($factsPath) } else { '' }
   # Expected native stderr (log failure) is evidence, not a terminating test exception.
   $savedPreference = $ErrorActionPreference
   try {
@@ -39,7 +41,7 @@ function Invoke-Review([string]$Name, [string[]]$ReviewArgs) {
     Assert-True ($newLines.Count -eq 1) "$Name appends exactly one log line"
     $entry = $newLines[0] | ConvertFrom-Json
     $expectedVerdict = if ($code -eq 0) { 'PASS' } elseif ($code -eq 1) { 'FAIL' } else { 'UNKNOWN' }
-    $expectedFindings = if ($Name -eq 'mock-fail') { 4 } elseif ($Name -in @('subtraction', 'fixed')) { $null } else { 0 }
+    $expectedFindings = if ($Name -in @('mock-fail','findings-unwritable','malformed-ontology-fail','locked-ontology-fail')) { 4 } elseif ($Name -in @('subtraction', 'fixed')) { $null } else { 0 }
     Assert-True ($entry.verdict -ceq $expectedVerdict -and ($null -eq $expectedFindings -or @($entry.findings).Count -eq $expectedFindings)) "$Name logs verdict and findings count"
     # Intent: keep model attribution honest for Line. Status: regression checks.
     # Next: supervisor live checks. Blockers: none. Confidence: JSONL after actual child exits.
@@ -61,6 +63,36 @@ function Invoke-Review([string]$Name, [string[]]$ReviewArgs) {
       Assert-True ($entry.specFile -ceq $packet -and $entry.dir -ceq $repo -and $entry.model -ceq 'gpt-6-astra' -and $entry.effort -ceq 'high' -and $entry.gates.secrets -ceq 'PASS' -and $entry.gates.lint -ceq 'SKIP') 'log records packet and gate statuses'
     }
     if ($Name -eq 'gates') { Assert-True ($entry.gates.secrets -ceq 'FAIL') 'log records failing gates' }
+    # Intent: prove every review layer writes only its own evidence. Status: actual child-output checks.
+    # Next: supervisor review. Blockers: none. Confidence: FAIL/PASS/gates and protected-path cases.
+    if ($Name -ne 'findings-unwritable') {
+      $factsAfter = if (Test-Path -LiteralPath $factsPath -PathType Leaf) { [IO.File]::ReadAllText($factsPath) } else { '' }
+      Assert-True ($factsAfter.StartsWith($factsBefore)) "$Name preserves existing findings"
+      $facts = @($factsAfter.Substring($factsBefore.Length) -split "`n" | Where-Object { $_.Trim() } | ConvertFrom-Json)
+      $failedGates = @($entry.gates.PSObject.Properties | Where-Object { $_.Value -eq 'FAIL' })
+      $expectedFactCount = if ($Name -in @('mock-missing-block','mock-invalid-block')) { 1 } elseif ($Name -eq 'mock-mixed-block') { 2 } else { @($entry.findings).Count + $failedGates.Count }
+      Assert-True ($facts.Count -eq $expectedFactCount) "$Name writes one fact per finding or failed gate"
+      for ($i = 0; $i -lt $facts.Count; $i++) {
+        $fact = $facts[$i]
+        Assert-True (($fact.PSObject.Properties.Name | Select-Object -Last 1) -ceq 'kind') "$Name kind is last property"
+        $seed = if ($fact.kind -eq 'format-violation') { 'violation' } else { [string]$i }
+        $hasher = [Security.Cryptography.SHA256]::Create()
+        try { $id = -join ($hasher.ComputeHash([Text.Encoding]::UTF8.GetBytes($entry.utc + $seed)) | ForEach-Object { $_.ToString('x2') }) } finally { $hasher.Dispose() }
+        Assert-True ($fact.id -ceq $id.Substring(0,16) -and $fact.utc -eq $entry.utc -and $fact.source -eq 'codex-review' -and $fact.dir -eq $repo) "$Name typed fact has deterministic source identity"
+        if ($fact.kind -eq 'format-violation') {
+          $expectedTitle = if ($Name -eq 'mock-missing-block') { 'Review findings block missing' } elseif ($Name -eq 'mock-invalid-block') { 'Review findings block is not valid JSON' } else { '1 findings failed the schema' }
+          Assert-True ($fact.layer -eq 2 -and $null -eq $fact.severity -and $fact.category -ceq 'other' -and $fact.title -ceq $expectedTitle -and $null -eq $fact.quote) "$Name records the format violation"
+        } else { Assert-True ($fact.kind -ceq 'finding') "$Name records finding kind" }
+        if ($fact.layer -eq 1) {
+          $category = if ($fact.title -match '^(typecheck|lint) ') { 'formatter-lint' } else { 'fixture-secret' }
+          Assert-True ($fact.category -eq $category -and $fact.severity -eq 'P2' -and $null -eq $fact.quote -and $null -eq $fact.location -and $null -eq $fact.reviewer -and $null -eq $fact.criterion) "$Name gate facts contain no diagnostics"
+        }
+      }
+      if ($Name -eq 'mock-fail') {
+        Assert-True ($facts.Count -eq 4 -and $facts[0].category -eq 'scope-creep' -and $facts[0].criterion -eq 'C2' -and $facts[0].reviewer -eq $entry.model -and $facts[0].layer -eq 2 -and $null -eq $facts[0].quote) 'FAIL facts retain category criterion reviewer and null quote'
+        Assert-True ($facts[0].specSha -eq (Get-FileHash $entry.specFile -Algorithm SHA256).Hash.ToLowerInvariant() -and $facts[0].specFile -eq $entry.specFile) 'FAIL facts hash the source packet'
+      }
+    }
   }
   $body = ($output | ForEach-Object { "$_" }) -join "`r`n"
   [IO.File]::WriteAllText((Join-Path $fixtureRoot "$Name.output.txt"), $body, $utf8)
@@ -103,7 +135,9 @@ $originalPath = $env:Path
 $originalAccounts = $env:CODEX_ACC_ROOT
 $originalMainHome = $env:CODEX_ACC_MAIN_HOME
 $originalReviewLog = $env:CODEX_REVIEW_LOG
+$originalStateDir = $env:CODEX_DO_STATE_DIR
 try {
+  $env:CODEX_DO_STATE_DIR = Join-Path $fixtureRoot 'state'
   $env:CODEX_REVIEW_LOG = Join-Path $fixtureRoot 'logs\reviews.jsonl'
   $env:CODEX_ACC_ROOT = Join-Path $fixtureRoot 'accounts'
   $env:CODEX_ACC_MAIN_HOME = Join-Path $fixtureRoot 'main'
@@ -132,6 +166,8 @@ process.exit(cp.spawnSync(command, { shell: true, stdio: 'inherit' }).status || 
   [IO.File]::WriteAllText((Join-Path $env:CODEX_ACC_MAIN_HOME 'config.toml'), $configText, (New-Object Text.UTF8Encoding $false))
   # An invalid override makes any accidental reviewer launch a test failure.
   $env:CODEX_DO_BIN = Join-Path $fixtureRoot 'must-not-launch.exe'
+  $result = Invoke-Review 'clean-first' @('-Dir', $repo)
+  Assert-True ($result.Code -eq 0 -and -not (Test-Path (Join-Path $fixtureRoot 'logs\findings.jsonl'))) 'clean PASS does not create findings log'
   Write-Fixture "function add(a,b) {`n  const apiKey = `"abcdefghijklmnop1234`";`n  console.log(`"x`");`n  return a+b;`n}`n"
   $result = Invoke-Review 'gates' @('-Dir', $repo)
   Assert-True ($result.Code -eq 1) 'gates exit 1'
@@ -142,6 +178,8 @@ process.exit(cp.spawnSync(command, { shell: true, stdio: 'inherit' }).status || 
   Assert-True ($result.Text -notmatch 'abcdefghijklmnop1234') 'secret is masked'
   Assert-True ($result.Text -match 'a.js:2:.*\*\*\*\*') 'secret location is accurate'
   Assert-True ($result.Text -match 'a.js:3:') 'console location is accurate'
+  $result = Invoke-Review 'gates-only-fail' @('-Dir', $repo, '-SkipModel')
+  Assert-True ($result.Code -eq 1) 'failed gates also record facts in gates-only mode'
 
   Write-Fixture "function add(a,b) {`n  return a+b;`n}`n"
   $result = Invoke-Review 'empty' @('-Dir', $repo)
@@ -210,7 +248,19 @@ if (mode === 'unknown') {
   process.stderr.write('VERDICT: PASS\n');
   process.stdout.write(''); // real codex review: answer on stdout, diagnostics on stderr; empty answer = no verdict
 } else if (mode === 'fail') {
-  process.stdout.write('VERDICT: PASS\n- [P1] mock finding - a.js:2\n[P0] critical finding - C:\\work\\a.js:3\n- [P2] minor finding - space name.js:4\n[P3] optional finding - src/a.js:5\nVERDICT: FAIL\n');
+  process.stdout.write('VERDICT: PASS\n- [P1] mock finding - a.js:2\n  C2: ' + 'detail '.repeat(40) + '\n[P0] critical finding - C:\\work\\a.js:3\n- [P2] minor finding - space name.js:4\n[P3] optional finding - src/a.js:5\nVERDICT: FAIL\n');
+  process.stdout.write('```findings\n' + JSON.stringify([
+    {severity:'P1',category:'scope-creep',title:'mock finding',location:'a.js:2',criterion:'C2'},
+    {severity:'P0',category:'logic-bug',title:'critical finding',location:'C:\\work\\a.js:3',criterion:null},
+    {severity:'P2',category:'other',title:'minor finding',location:'space name.js:4',criterion:null},
+    {severity:'P3',category:'other',title:'optional finding',location:'src/a.js:5',criterion:null}
+  ]) + '\n```\n');
+} else if (mode === 'missing-block') {
+  process.stdout.write('VERDICT: PASS\n');
+} else if (mode === 'invalid-block') {
+  process.stdout.write('VERDICT: PASS\n```findings\n{bad\n```\n');
+} else if (mode === 'mixed-block') {
+  process.stdout.write('VERDICT: PASS\n```findings\n' + JSON.stringify([{severity:'P2',category:'other',title:'valid finding',location:null,criterion:null},null]) + '\n```\n');
 } else if (mode.startsWith('criteria-')) {
   const answers = {
     'criteria-complete': 'CRITERIA:\nC1: PASS\nextra prose\nC2: PASS\nVERDICT: PASS\n',
@@ -219,9 +269,9 @@ if (mode === 'unknown') {
     'criteria-duplicate': 'CRITERIA:\nC1: PASS\nC1: PASS\nC2: PASS\nVERDICT: PASS\n',
     'criteria-fail': 'CRITERIA:\nC1: UNKNOWN\nVERDICT: FAIL\n'
   };
-  process.stdout.write(answers[mode]);
+  process.stdout.write(answers[mode] + '```findings\n[]\n```\n');
 } else {
-  process.stdout.write('VERDICT: PASS\n');
+  process.stdout.write('VERDICT: PASS\n```findings\n[]\n```\n');
 }
 '@
   [IO.File]::WriteAllText((Join-Path $fixtureRoot 'mock-codex.js'), $mockScript, $utf8)
@@ -242,6 +292,8 @@ if (mode === 'unknown') {
   $record = Get-Content -Raw -LiteralPath (Join-Path $fixtureRoot 'mock-record.json') | ConvertFrom-Json
   Assert-True ($record.Input.Contains("CRITERIA:`n1. Preserve addition.`n2. Preserve two arguments.`n`nFULL PACKET")) 'SUCCESS CRITERIA remains the binding block'
   Assert-True ($record.Input.Contains('P0 (blocks ship: wrong result, data loss, security)') -and $record.Input.Contains('P1 (must fix before merge)') -and $record.Input.Contains('P2 (should fix)') -and $record.Input.Contains('P3 (nit)') -and $record.Input.Contains('FAIL when at least one P0 or P1 finding exists') -and $record.Input -notmatch 'critical\|warning\|optional') 'prompt uses P0-P3 and P0/P1 failure threshold'
+  . (Join-Path $root 'review-findings-lib.ps1')
+  Assert-True ($record.Input.Contains('After the VERDICT line, append one fenced block ```findings containing a JSON array of {severity, category, title, location, criterion}; use [] when there are no findings. Categories: ') -and $record.Input.Contains(((Get-ReviewDefectCategories) -join ', '))) 'prompt requires structured findings and ontology ids'
   $heading = 'FULL PACKET (context; sections named AMENDMENT or ADDENDUM override earlier criteria)'
   $fence = '`' * 8
   Assert-True ($record.Input.Contains("$heading`n${fence}text`n$packetText`n$fence")) 'full amendment packet uses a safe fence'
@@ -283,7 +335,40 @@ if (mode === 'unknown') {
   Assert-True (@([regex]::Matches($result.Text, 'GATE \w+: SKIP \(-SkipGates\)')).Count -eq 4) 'SkipGates bypasses all four gates'
   $env:REVIEW_SELFTEST_MODE = 'fail'
   $result = Invoke-Review 'mock-fail' @('-Dir', $repo)
+  # Intent: run the real reviewer with damaged ontology without mutating Line's source tree.
+  # Status: isolated copy exercises prompt, verdict and both logs. Next: review. Blockers: none. Confidence: child exits.
+  $isolatedRoot = Join-Path $fixtureRoot 'ontology-fixture'
+  $isolatedBin = Join-Path $isolatedRoot 'bin'
+  $isolatedOntology = Join-Path $isolatedRoot 'ontology\harness.ontology.json'
+  [void][IO.Directory]::CreateDirectory($isolatedBin)
+  [void][IO.Directory]::CreateDirectory((Split-Path -Parent $isolatedOntology))
+  foreach ($file in @('codex-review.ps1','review-findings-lib.ps1','codex-acc-lib.ps1','codex-sandbox-lib.ps1','ram-preflight.ps1')) {
+    Copy-Item -LiteralPath (Join-Path $root $file) -Destination (Join-Path $isolatedBin $file)
+  }
+  $savedHelper = $helper; $savedMode = $env:REVIEW_SELFTEST_MODE
+  try {
+    $helper = Join-Path $isolatedBin 'codex-review.ps1'
+    foreach ($damage in @('malformed','locked')) {
+      [IO.File]::WriteAllText($isolatedOntology, '{broken ontology', $utf8)
+      $ontologyLock = $null
+      try {
+        if ($damage -eq 'locked') { $ontologyLock = [IO.File]::Open($isolatedOntology, 'Open', 'ReadWrite', 'None') }
+        foreach ($mode in @('pass','fail')) {
+          $env:REVIEW_SELFTEST_MODE = $mode
+          $damagedResult = Invoke-Review "$damage-ontology-$mode" @('-Dir', $repo)
+          $expectedCode = if ($mode -eq 'pass') { 0 } else { 1 }
+          Assert-True ($damagedResult.Code -eq $expectedCode) "$damage ontology preserves $mode exit code"
+          Assert-True (@($damagedResult.Stderr -split "`n" | Where-Object { $_ -match '^codex-review: ontology unavailable; using built-in defect categories$' }).Count -eq 1) "$damage ontology emits one fallback warning across prompt verdict and logs"
+        }
+      } finally { if ($null -ne $ontologyLock) { $ontologyLock.Dispose() } }
+    }
+  } finally { $helper = $savedHelper; $env:REVIEW_SELFTEST_MODE = $savedMode }
   Assert-True ($result.Code -eq 1) 'last reviewer verdict wins'
+  foreach ($mode in @('missing-block','invalid-block','mixed-block')) {
+    $env:REVIEW_SELFTEST_MODE = $mode
+    $result = Invoke-Review ('mock-' + $mode) @('-Dir', $repo)
+    Assert-True ($result.Code -eq 0) "$mode does not change the PASS verdict"
+  }
   $env:REVIEW_SELFTEST_MODE = 'unknown'
   $result = Invoke-Review 'mock-unknown' @('-Dir', $repo)
   Assert-True ($result.Code -eq 3 -and $result.Text -match 'VERDICT: UNKNOWN') 'diagnostics cannot substitute for a missing reviewer verdict'
@@ -320,6 +405,16 @@ if (mode === 'unknown') {
     Assert-True ($result.Code -eq 0 -and $result.Text.Contains('VERDICT: GATES-PASS (no model review)')) 'log write failure cannot fail gates-only review'
     Assert-True ($result.Stderr -match '^codex-review: review log failed: [A-Za-z.]+Exception$' -and $result.Text -notmatch [regex]::Escape($fixtureRoot)) 'log failure reports only exception type'
   } finally { $env:CODEX_REVIEW_LOG = $logPath }
+  $failureLogs = Join-Path $fixtureRoot 'unwritable-findings'
+  [void][IO.Directory]::CreateDirectory((Join-Path $failureLogs 'findings.jsonl'))
+  $savedMode = $env:REVIEW_SELFTEST_MODE
+  try {
+    $env:CODEX_REVIEW_LOG = Join-Path $failureLogs 'reviews.jsonl'
+    $env:REVIEW_SELFTEST_MODE = 'fail'
+    $result = Invoke-Review 'findings-unwritable' @('-Dir', $repo)
+    Assert-True ($result.Code -eq 1 -and $result.Text.Contains('VERDICT: FAIL')) 'findings write failure retains model FAIL exit'
+    Assert-True ($result.Stderr -match '^codex-review: findings log failed: [A-Za-z.]+Exception$' -and $result.Stderr -notmatch [regex]::Escape($fixtureRoot)) 'findings failure reports only exception type'
+  } finally { $env:CODEX_REVIEW_LOG = $logPath; $env:REVIEW_SELFTEST_MODE = $savedMode }
   $env:REVIEW_SELFTEST_MODE = 'sandbox-marker'
   $result = Invoke-Review 'sandbox-marker' @('-Dir', $repo)
   Assert-True ($result.Code -eq 3 -and $result.Text.TrimEnd().EndsWith('VERDICT: UNKNOWN (sandbox failure)') -and $result.Text.Contains('WORKER SANDBOX FAILURE:')) 'sandbox failure overrides PASS answer'
@@ -516,6 +611,9 @@ if (mode === 'unknown') {
     $result = Invoke-Review 'npm-gates' @('-Dir', $repo)
     Assert-True ($result.Code -eq 1 -and $result.Text -match 'GATE typecheck: PASS' -and $result.Text -match 'GATE lint: FAIL') 'npm scripts run in the fixture and propagate failures'
     Assert-True ($result.Text -notmatch '(?m)^-> ') 'npm failure blocks Codex'
+    [IO.File]::WriteAllText($packageFile, '{invalid package', $utf8)
+    $result = Invoke-Review 'invalid-package' @('-Dir', $repo, '-SkipModel')
+    Assert-True ($result.Code -eq 1 -and $result.Text -match 'GATE typecheck: FAIL' -and $result.Text -match 'GATE lint: FAIL') 'both static gates record facts in gates-only mode'
   } finally { Remove-Item -LiteralPath $packageFile -ErrorAction SilentlyContinue }
 
   $spaced = Join-Path $repo 'space name.js'
@@ -602,6 +700,7 @@ if (mode === 'unknown') {
   $env:CODEX_ACC_ROOT = $originalAccounts
   $env:CODEX_ACC_MAIN_HOME = $originalMainHome
   $env:CODEX_REVIEW_LOG = $originalReviewLog
+  $env:CODEX_DO_STATE_DIR = $originalStateDir
   $resolvedFixture = [IO.Path]::GetFullPath($fixtureRoot)
   $expectedParent = [IO.Path]::GetFullPath($env:TEMP).TrimEnd('\')
   if ((Split-Path -Parent $resolvedFixture) -ne $expectedParent -or (Split-Path -Leaf $resolvedFixture) -notlike 'codex-review-fixture-*') { throw 'Unsafe review fixture cleanup path' }

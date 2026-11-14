@@ -21,6 +21,11 @@ Full detail (dispatcher flags, model-routing rationale, review-gate mechanics, t
 
 ## Worker Dispatch
 
+Before each packet run `bin/packet-pitfalls.ps1 -Tier <tier> -Type <type>` and paste its block into the packet; add `TYPE:` to the header.
+
+<!-- Intent: document the resume cap. Status: enforced. Next: install. Blockers: none. Confidence: fixture tests. -->
+Exit 76 from `codex-do.ps1` means the resume session already used more than 50M tokens; start a fresh session and report to Line.
+
 1. One-shot bounded tasks: `powershell -NoProfile -File C:\Users\ADMIN\.claude\bin\codex-do.ps1 -Dir <repo> -SpecFile <packet>` (long specs always through `-SpecFile`). `-Model <slug> -Effort <level>`, `-Fast` (medium effort), `-Sandbox read-only`, `-Account <name>`.
    - Runs detached by default (outside Claude Code's process tree). `-Status`, `-Attach <runId|last>`, `-Cancel <runId|last>`. A toast plus sound fires when a run ends.
    - Codex CLI 0.162.1 ignores `--disable multi_agent --disable multi_agent_v2` (verified 2026-11-09: the worker still has `collaboration.spawn_agent`; `agents.max_threads=0` is rejected). Say "Do not spawn sub-agents" in every packet's CONSTRAINTS; session discovery must pick the `thread_source: user` rollout.
@@ -91,6 +96,7 @@ The implementer never grades itself. Layers: (1) deterministic gates, (2) fresh-
 Important packets get a pre-dispatch read by a Fable subagent (packet only, about 5 minutes). At Critical every Fable step uses Fable 5.2.
 
 On FAIL the worker fixes and a NEW reviewer session runs. After 2 FAILs at Important/Critical (3 at Standard) stop, report to Line, and redesign. After every delegated task append one line to `~/.claude/state/review-ledger.log` with `bin/ledger-add.ps1`: `date|tier|layer2 yes/no|L1|L2|L3|note|worker=<model>|type=<ui|collector|review|research|docs|config|other>|fail_rounds=<int>|findings=L1:<n>,L2:<n>,L3:<n>`. Old 7-field lines stay valid.
+Record every Fable layer-2 finding and every layer-3 defect with bin/finding-add.ps1 (codex-review records its own).
 
 ## Working Rules
 

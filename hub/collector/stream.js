@@ -205,9 +205,16 @@ async function ingest(store, item, expired, options = {}) {
             add(diagnostics, 'json_parsed');
             value = JSON.parse(line.text);
             if (line.bytes >= 65536) sample('line_parsed');
-          } catch { store.addMeta('parse_errors', 1); }
+          } catch {
+            store.addMeta('parse_errors', 1);
+            // v11: malformed finding JSON never reaches the typed parser.
+            if (item.kind === 'finding') store.addMeta('finding_warnings', 1);
+          }
           if (value !== undefined) {
-            if (!value || typeof value !== 'object' || Array.isArray(value)) store.addMeta('parse_errors', 1);
+            if (!value || typeof value !== 'object' || Array.isArray(value)) {
+              store.addMeta('parse_errors', 1);
+              if (item.kind === 'finding') store.addMeta('finding_warnings', 1);
+            }
             else {
               ctx.recordTimestamp = typeof value.timestamp === 'string' || typeof value.timestamp === 'number' ? value.timestamp : null;
               ctx.recordType = value.type;

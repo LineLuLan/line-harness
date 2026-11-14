@@ -2,7 +2,7 @@
 
 A local dashboard that shows how well a Claude Code (supervisor) + Codex (worker) harness performs: quota pace, delegation quality, tokens, worker runs, hook health, and the machine itself (RAM, disk, folders).
 
-Public code, private data. The database stays at `~/.line-hub/hub.db` and is never committed. It stores numbers and names only, never prompt or answer text and never full paths.
+Public code, private data. The database stays at `~/.line-hub/hub.db` and is never committed. It stores numbers and names, plus a short title (max 200 chars) for each finding; findings keep no paths. It never stores prompt or answer text or full paths.
 
 ## Parts
 
@@ -11,7 +11,7 @@ Public code, private data. The database stays at `~/.line-hub/hub.db` and is nev
 | `collector/collect.js` | Reads Claude Code transcripts, Codex rollouts, harness state files and the sampler files incrementally into SQLite (`node:sqlite`), then exits | peak < 90 MB (bench 83-84 MiB); about 0.1 s per hook run |
 | `collector/sample-system.js` | One system sample per minute (Task Scheduler), then exits | node about 60 MB + one short `powershell` CIM call; about 0.65 s per call |
 | `server/` | Read-only HTTP server on `127.0.0.1` that turns the DB into JSON | about 55-72 MB; stops after 30 min idle |
-| `web/` | Ten pages (Preact + htm + uPlot, vendored, no build step) | one browser tab |
+| `web/` | Six pages (Preact + htm + uPlot, vendored, no build step) | one browser tab |
 
 There is no always-on process. The collector runs from Claude Code `SessionStart` and `Stop` hooks (async), skips if it ran less than 2 minutes ago, and works for at most 20 s per run. Collector internals: [collector/NOTES.md](collector/NOTES.md).
 
@@ -67,24 +67,20 @@ Cost per call, measured on Line's machine (2026-11-13, 5 calls): 628-645 ms wall
 
 ## Pages
 
-| Page | Shows |
-| --- | --- |
-UI v6 part 1 (H6a): the v4 pages on schema v8, plus the v5 System page and a one-line "Do this now". UI v6 part 2 (H6b): the Models page. Nav order below. Route ids: `/api/<id>?days=N`, hash `#<id>?days=N`. Models also takes a model key: `/api/models?days=N&model=<key>`, hash `#models/<encodeURIComponent(key)>?days=N`.
+Six pages, in the navigation order below (Line, 2026-11-15). Hash routes use `#<id>?days=N`; data routes use `/api/<id>?days=N`, except static Flow.
 
 | Page (id) | Shows |
 | --- | --- |
-| Overview (`overview`) | ONE "Do this now" line (first rule that fires; else "All clear - next reset ..."); KPIs with delta + sparkline (tokens today / in range, worker runs, first-pass PASS, quota left, active streak); "What needs attention?"; the 12-month activity calendar; Claude vs Codex tokens per day; capability radar preview. |
-| Supervisor (`supervisor`) | Claude only: edits vs work handed off, session weight, review catch by layer, model families, skill / sub-agent / MCP tops, the capability and task-type radars. |
-| Worker (`workers`) | Run outcomes per model, weekly first-pass clean by tier, repair rounds, lead time, review tiers, codex-review verdicts. Delegation: rework ratios (7 d / range / 30 d), first-pass clean by tier x worker (7 d, 30 d), per-task runs and lead for ledger lines with `runs=`, resume rate by packet size, Codex tokens by origin. |
-| Models (`models`) | One row per model key: tokens, share of its side, runs (Codex) or sessions (Claude), first-pass clean % and FAIL rounds from the ledger, median run time; fewer than 3 runs / sessions = "low data". Click a row for the detail: tokens per day (fresh input, cache read, cache write, output), exact ids; Claude: sessions, top skills / tools / sub-agents of its sessions; Codex: exit 0 / failed / lost, median and p90 run time, effort, findings per layer, task types; last 20 runs or sessions (repo labels only). Key = Claude family (Opus / Fable / Sonnet / Haiku / Other; `<synthetic>` left out) or the exact Codex model name (`unknown` is its own row; retired `gpt-5.6-*` = Other (Codex)). A Claude session is listed when it has a message in the range and counts for the family with the most messages over the whole session. Codex tokens cover every Codex thread (codex-do, interactive desktop / CLI, sub-agents) while runs count codex-do only, so a Codex row shows runs and threads and splits its tokens into codex-do (threads rooted at a run's session) and other; Codex low data = fewer than 3 runs and fewer than 3 threads. Missing data is `null` ("no data"), never 0. When a key exists on both sides, the Codex row id is `codex:<key>` (`claude:<key>` / `codex:<key>` also resolve). Ledger aliases: opus -> Opus, fable -> Fable, claude-subagent -> Other. An unknown key returns `picked: null`. The hash route is the pure module `web/route.js` (on the static allowlist). |
-| Usage (`cost`) | Claude vs Codex split and composition, tokens per day, model mix and ranking, one forecast card per quota window (current account), used % vs the even-pace line per window, daily quota peaks, skill / MCP / sub-agent / tool tops. |
-| Productivity (`productivity`) | Runs and tasks per day, run time, quota pace per side (Claude 7-day, Claude 5-hour, Codex: used %, window gone, pace, 1.0 reference), when Line works, context pressure. |
-| Harness (`harness`) | Hook errors / timeouts, exit 72 / 73, slowest hooks with their configured limit, collector health. |
-| Gates (`gates`) | Tasks and review coverage by tier; first-pass and STOP rates; L1/L2/L3 defect sums with known-count denominators; late defect share; latest 20 Important/Critical tasks missing L2 (STOP exempt); reviewer FAIL rates and mean P0+P1; latest eight Monday-start calendar weeks. |
-| System (`system`) | Free RAM, commit, free disk C:, low-memory events; RAM by day; drives; folders incl. the WSL and Docker `.vhdx` disks (size, growth, days to full); top processes; low-memory events; hook p95 as a share of each hook's own timeout. |
-| Trace (`trace`) | Run scatter, then Claude sessions by repo; each lane bar is one Codex run; the run table shows the run's whole Codex thread tree, once per resumed session. |
+| Overview (`overview`) | One-screen desktop summary: three quota bars with elapsed/projected ticks, up to four attention links, four KPIs, and a stacked Claude/Codex daily token chart. Exact worker counts reuse `/api/work` alongside `/api/overview`. |
+| Flow (`flow`) | Existing static harness diagram; no API fetch. |
+| Work (`work`) | Chart-first: 365-day activity heatmap (Worker runs by default), Claude/Codex capability radar, stacked review outcomes by tier with a defect-layer donut, daily clean/findings bars with a rolling 7-day clean-first-pass line, worker run bars with exit-0/first-pass rings, and up to five Important/Critical tasks missing layer 2. Reuses calendar, capability, workers and gates queries; rolling rates include six prior days. |
+| Usage (`cost`) | Five cards: all-token source split, daily tokens (All/Output), model ranking, three quota forecasts together, and top-five Tools/Skills/MCP/Sub-agents tabs. |
+| Machine (`machine`) | Chart-first: free-RAM/commit/C:/D: rings (D: when present), hook error/timeout stat, daily RAM/commit lines, six hook timeout bars with a 50% marker, six folder-size bars with growth chips, six process working-set bars, and an alert timeline with the newest four items. Reuses system/harness data; capacity colours use 70%/85% used thresholds without changing alert rules. |
+| Trace (`trace`) | Scatter and session lanes, with Problems only enabled initially; All reveals every run. Repo filters remain available. |
 
-The 30 / 70 supervisor / worker target is retired. `/api/delegation` and `/api/usage` return 404 (the delegation metrics are `workers().delegation`).
+Legacy hashes redirect while keeping the selected range: `supervisor`, `workers`, `gates`, `productivity` → `work`; `system`, `harness` → `machine`; `models`, `models/<key>`, `usage` → `cost`. Unknown hashes land on Overview.
+
+All existing API endpoints remain supported, including `/api/models?model=<key>&tier=<tier>`, `/api/gates`, `/api/system` and `/api/harness`; `/api/work` and `/api/machine` add compact compositions without new SQL. `/api/delegation` and `/api/usage` still return 404. The historical API details below describe data retained for tools and compatibility, including cards removed from the navigation.
 
 ### Model outcomes and review gates (H8b, 2026-11-14)
 

@@ -64,6 +64,11 @@ try {
   # HEAD now defaults to detached mode; this fixture compares the Attached transport.
   $baselineText = (($baselineLines -join "`n") + "`n").Replace('[switch]$Attached,', '[switch]$Attached = $true,')
   Write-TestFile $baselineScript $baselineText
+  # Intent: load HEAD's local preflight dependencies in isolation. Status: baseline fixture repair.
+  # Next: none. Blockers: none. Confidence: baseline child must exit zero before comparison.
+  foreach ($dependency in @('packet-lint.ps1', 'ram-preflight.ps1')) {
+    [IO.File]::Copy((Join-Path $bin $dependency), (Join-Path $baselineDir $dependency))
+  }
   [IO.File]::Copy((Join-Path $bin 'codex-acc-lib.ps1'), (Join-Path $baselineDir 'codex-acc-lib.ps1'))
   $sandboxLibrary = Join-Path $bin 'codex-sandbox-lib.ps1'
   if (Test-Path -LiteralPath $sandboxLibrary) { [IO.File]::Copy($sandboxLibrary, (Join-Path $baselineDir 'codex-sandbox-lib.ps1')) }
@@ -193,12 +198,13 @@ if (process.env.RESUME_TEST_ROLLOUT === '1') {
   foreach ($entry in @(
     @{ Id = '20261109-100001-ffff'; Dir = $workDir; Session = $uuid; Model = 'gpt-6-sol'; Effort = 'medium' },
     @{ Id = '20261109-100001-0002'; Dir = $workDir; Session = $uuid; Model = 'gpt-6-astra'; Effort = 'xhigh' },
-    @{ Id = '20261109-100002-0003'; Dir = $fixture; Session = 'bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb'; Model = 'gpt-6-luna'; Effort = 'low' }
+    @{ Id = '20261109-100002-0003'; Dir = $fixture; Session = 'bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb'; Model = 'gpt-6-luna'; Effort = 'low' },
+    @{ Id = '20261109-100003-0004'; Dir = $workDir; Session = 'cccccccc-cccc-7ccc-8ccc-cccccccccccc'; Model = 'gpt-6-luna'; Effort = 'low'; Account = 'other' }
   )) {
     $folder = Join-Path $runs $entry.Id
     New-Item -ItemType Directory -Path $folder -Force | Out-Null
     Write-TestFile (Join-Path $folder 'session.txt') $entry.Session
-    Write-TestFile (Join-Path $folder 'run.json') (@{ runId = $entry.Id; dir = $entry.Dir; model = $entry.Model; effort = $entry.Effort } | ConvertTo-Json)
+    Write-TestFile (Join-Path $folder 'run.json') (@{ runId = $entry.Id; dir = $entry.Dir; model = $entry.Model; effort = $entry.Effort; account = $entry.Account } | ConvertTo-Json)
     # The older same-second run has a larger random suffix: creation time must win.
     [IO.Directory]::SetCreationTimeUtc($folder, ([datetime]'2026-11-09T10:00:01Z').ToUniversalTime().AddMilliseconds($fixtureRunNumber * 100))
     $fixtureRunNumber++
@@ -220,7 +226,33 @@ if (process.env.RESUME_TEST_ROLLOUT === '1') {
   }
 
   $env:RESUME_TEST_ROLLOUT = '0'
+  # Intent: cap resumes before any Codex process, including its probe. Status: fixture regressions.
+  # Next: supervisor installation. Blockers: none. Confidence: exit, launch marker and child arguments.
+  $tokenRollout = Join-Path $env:CODEX_ACC_MAIN_HOME "sessions\2026\10\01\rollout-2026-10-01T10-00-00-$uuid.jsonl"
+  $fakeBin = [IO.File]::ReadAllText((Join-Path $fixture 'fake-codex.js'))
+  Write-TestFile (Join-Path $fixture 'fake-codex.js') ($fakeBin.Replace("const path = require('path');", "const path = require('path');`nfs.appendFileSync(process.env.RESUME_TEST_RECORD + '.launch', 'started\n');"))
+  $launchMarker = $env:RESUME_TEST_RECORD + '.launch'
+  foreach ($target in @($uuid, 'last')) {
+    [IO.File]::Copy((Join-Path $PSScriptRoot 'fixtures\resume-60m.jsonl'), $tokenRollout, $true)
+    if (Test-Path -LiteralPath $launchMarker) { Remove-Item -LiteralPath $launchMarker -Force }
+    $capped = Invoke-TestRun $script @('-Dir', $workDir, '-Resume', $target, 'cap')
+    Assert-True ($capped.Code -eq 76 -and $capped.Text.Contains("codex-do: session $uuid already used 60M tokens (> 50M rule) - start a fresh session and report to Line")) "$target over 50M exits 76 with guidance"
+    Assert-True (-not (Test-Path -LiteralPath $launchMarker)) "$target over 50M starts no Codex process"
+    [IO.File]::Copy((Join-Path $PSScriptRoot 'fixtures\resume-10m.jsonl'), $tokenRollout, $true)
+    $allowed = Invoke-TestRun $script @('-Dir', $workDir, '-Resume', $target, 'under cap')
+    Assert-True ($allowed.Code -eq 0 -and (Test-Path -LiteralPath $launchMarker)) "$target at 10M proceeds"
+    Assert-True ((Read-Record).Args[-2] -ceq $uuid) "$target launches the checked session UUID"
+  }
+  $lowUsage = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'fixtures\resume-10m.jsonl'))
+  Write-TestFile $tokenRollout ($lowUsage.Replace('10000000', '50000000'))
+  $boundary = Invoke-TestRun $script @('-Dir', $workDir, '-Resume', $uuid, 'boundary')
+  Assert-True ($boundary.Code -eq 0) 'exactly 50M proceeds'
+  Write-TestFile $tokenRollout '{"type":"event_msg","payload":{"info":{"total_token_usage":{}}}}'
+  $noTokens = Invoke-TestRun $script @('-Dir', $workDir, '-Resume', $uuid, 'missing tokens')
+  Assert-True ($noTokens.Code -eq 0 -and @($noTokens.Text -split "`n" | Where-Object { $_ -match 'codex-do: warning:.*token usage' }).Count -eq 1) 'missing token field warns once and proceeds'
   Remove-Item -LiteralPath (Join-Path $env:CODEX_ACC_MAIN_HOME 'sessions') -Recurse -Force
+  $noRollout = Invoke-TestRun $script @('-Dir', $workDir, '-Resume', $uuid, 'missing rollout')
+  Assert-True ($noRollout.Code -eq 0 -and @($noRollout.Text -split "`n" | Where-Object { $_ -match 'codex-do: warning:.*token usage' }).Count -eq 1) 'missing rollout warns once and proceeds'
   $unknown = Invoke-TestRun $script @('-Dir', $workDir, 'one line')
   Assert-True ($unknown.Code -eq 0 -and $unknown.Text.Contains('session: unknown')) 'missing rollout prints unknown without changing exit'
 

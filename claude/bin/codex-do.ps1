@@ -10,6 +10,8 @@
   Detached prompts always use stdin and sub-agents are disabled to keep sessions resumable.
   Before exec/resume, a bounded sandbox preflight tries elevated, then unelevated.
   Exit 73 means neither sandbox works; exit 72 means captured output reports a sandbox failure.
+  Exit 74 means packet lint failed; 75 is retired (RAM only reports); exit 76 means the
+  resume session already used more than 50M tokens: start fresh and report to Line.
   Attached output is not captured. Detached completion plays three sounds and a Windows
   toast from the wrapper itself; CODEX_DO_NOTIFY=0 suppresses both, retaining notify.log.
   Completion invariant: out.log is final once exit.txt is published. Later telemetry
@@ -232,6 +234,8 @@ if ($Resume -and -not ($Attach -or $Cancel)) {
       Where-Object { $_.Name -cmatch '\A\d{8}-\d{6}-[0-9a-f]{4}\z' } | Sort-Object CreationTimeUtc, Name -Descending)) {
     try {
       $candidate = Read-CodexRunMetadata -Folder $folder.FullName
+      # A resolved 'last' UUID must belong to the account being resumed.
+      if ($candidate.account -and $candidate.account -ine $accountName) { continue }
       if (-not $candidate.model -or $candidate.effort -notin @('low', 'medium', 'high', 'xhigh', 'max', 'ultra')) { continue }
       if ($Resume -ceq 'last') {
         if (-not $candidate.dir -or [IO.Path]::GetFullPath([string]$candidate.dir).TrimEnd([char[]]@('\', '/')) -ine $resumeDir) { continue }
@@ -251,6 +255,49 @@ if ($Resume -and -not ($Attach -or $Cancel)) {
       Write-Host "resume: inheriting model $($priorRun.model) effort $($priorRun.effort) from run $priorRunId"
     }
   } else { Write-Host 'resume: no prior run found; using defaults' }
+  # Intent: cap Line's resumed sessions before sandbox probes or worker launch. Status: enforced.
+  # Next: supervisor installation. Blockers: missing usage warns and continues. Confidence: fixture regressions.
+  $resumeSession = $Resume
+  if ($Resume -ceq 'last') {
+    $resumeSession = $null
+    if ($priorRunId) {
+      try {
+        $resolvedSession = [IO.File]::ReadAllText((Join-Path (Join-Path $runsDir $priorRunId) 'session.txt')).Trim()
+        if ($resolvedSession -match '\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z') {
+          $resumeSession = $resolvedSession
+          $Resume = $resolvedSession # Launch exactly the session whose usage was checked.
+        }
+      } catch {} # No durable session ID: retain Codex's --last fallback below.
+    }
+  }
+  $highestTokens = $null
+  if ($resumeSession) {
+    try {
+      $rollout = Get-ChildItem -LiteralPath (Join-Path $accountHome 'sessions') -Filter "rollout-*-$resumeSession.jsonl" -File -Recurse -ErrorAction Stop |
+        Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+      if ($null -ne $rollout) {
+        $reader = [IO.File]::OpenText($rollout.FullName)
+        try {
+          while ($null -ne ($usageLine = $reader.ReadLine())) {
+            if (-not $usageLine.Contains('"total_token_usage"')) { continue }
+            try {
+              $usageEvent = $usageLine | ConvertFrom-Json -ErrorAction Stop
+              $tokens = 0L
+              if ([long]::TryParse([string]$usageEvent.payload.info.total_token_usage.total_tokens, [ref]$tokens) -and $tokens -ge 0) {
+                if ($null -eq $highestTokens -or $tokens -gt $highestTokens) { $highestTokens = $tokens }
+              }
+            } catch {} # Partial or malformed JSONL events do not hide earlier usage.
+          }
+        } finally { $reader.Dispose() }
+      }
+    } catch {} # Missing or unreadable optional telemetry must not prevent a resume.
+  }
+  if ($null -ne $highestTokens -and $highestTokens -gt 50000000) {
+    $millions = ($highestTokens / 1000000.0).ToString('0.######', [Globalization.CultureInfo]::InvariantCulture)
+    Write-Host "codex-do: session $resumeSession already used $($millions)M tokens (> 50M rule) - start a fresh session and report to Line"
+    exit 76
+  }
+  if ($null -eq $highestTokens) { Write-Host "codex-do: warning: token usage unavailable for session $Resume; continuing resume" }
 }
 $codexModel = $Model
 $codexEffort = if ($Effort) { $Effort } elseif ($Fast) { 'medium' } else { 'high' }

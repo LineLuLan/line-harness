@@ -63,6 +63,57 @@ export function ShareBar({ parts }) {
       <b>${share(p.v, all)}</b><span class="dim">${fmt(p.v)}</span></span>`)}</div></div>`;
 }
 
+/* Intent: keep percentage geometry finite without turning missing readings into zero.
+ * Status: shared H11 helper. Next: none. Blockers: none. Confidence: clamp/null fixtures. */
+const percent = v => Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : null;
+
+/* Intent: a pure, responsive percentage ring with an explicit unknown state.
+ * Status: shared by Work and Machine. Next: host themes. Blockers: none. Confidence: SVG fixtures. */
+export function Ring({ value, label, color = C.aurora, title }) {
+  const v = percent(value), text = v === null ? '–' : `${Math.round(v * 10) / 10}%`;
+  return html`<div class=${'stat-ring' + (v === null ? ' unknown' : '')} title=${title || `${label}: ${text}`}>
+    <svg viewBox="0 0 100 100" width="100%" role="img" aria-label=${`${label}: ${text}`}>
+      <circle cx="50" cy="50" r="40" fill="none" stroke="var(--track)" stroke-width="9" />
+      ${v === null ? '' : html`<circle class="ring-value" cx="50" cy="50" r="40" fill="none" stroke=${color} stroke-width="9"
+        pathLength="100" stroke-dasharray=${`${v} 100`} transform="rotate(-90 50 50)" />`}
+      <text x="50" y="55" text-anchor="middle">${text}</text>
+    </svg><span class="ring-label">${label}</span></div>`;
+}
+
+/* Intent: show measured count shares, normalizing slices into 0-100 and ignoring invalid counts.
+ * Status: zero and missing totals draw only the track. Next: host themes. Blockers: none. Confidence: SVG fixtures. */
+export function Donut({ parts = [], label = 'Total' }) {
+  const known = parts.filter(p => Number.isFinite(p.v) && p.v >= 0);
+  const total = known.reduce((n, p) => n + p.v, 0);
+  let offset = 0;
+  return html`<div class="stat-donut"><svg viewBox="0 0 120 120" width="100%" role="img" aria-label=${`${label}: ${known.length ? fmt(total) : '–'}`}>
+    <circle cx="60" cy="60" r="46" fill="none" stroke="var(--track)" stroke-width="15" />
+    ${known.filter(p => p.v > 0).map(p => {
+      const size = percent(p.v / total * 100), start = offset; offset += size;
+      return html`<circle class="donut-segment" cx="60" cy="60" r="46" fill="none" stroke=${p.color || C.muted}
+        stroke-width="15" pathLength="100" stroke-dasharray=${`${size} ${100 - size}`} stroke-dashoffset=${-start} transform="rotate(-90 60 60)">
+        <title>${`${p.label}: ${fmt(p.v)} (${pct1(size)})`}</title></circle>`;
+    })}<text x="60" y="65" text-anchor="middle">${known.length ? fmt(total) : '–'}</text>
+    </svg><div class="donut-legend"><b>${label}</b>${parts.map(p => html`<span><i class="sw" style=${`background:${p.color || C.muted}`}></i>${p.label}<b>${Number.isFinite(p.v) && p.v >= 0 ? fmt(p.v) : '–'}</b></span>`)}</div></div>`;
+}
+
+/* Intent: one pure horizontal-bar list for review counts, run counts and machine rankings.
+ * Status: optional stacked parts, threshold marker and trailing graphic/chip. Next: host widths.
+ * Blockers: none. Confidence: finite clamped geometry and page render fixtures. */
+export function HBar({ rows = [], max, marker = null, empty = 'No data in this range' }) {
+  const ceiling = max ?? Math.max(1, ...rows.map(r => Number.isFinite(r.value) ? r.value : 0));
+  return rows.length ? html`<div class="hbar-list">${rows.map(r => {
+    const width = percent(ceiling > 0 && Number.isFinite(r.value) ? r.value / ceiling * 100 : null);
+    const parts = r.parts || [{ v: r.value, color: r.color || C.codex, label: r.label }];
+    return html`<div class=${'hbar-row' + (r.extra ? ' with-extra' : '')}>
+      <span class="hbar-name" title=${r.title || r.label}>${r.label}</span>
+      <div class="hbar-track" title=${r.title || `${r.label}: ${r.display ?? fmt(r.value)}`}>
+        <${SegBar} parts=${parts} of=${width ?? 0} height=${12} />
+        ${marker === null ? '' : html`<i class="hbar-marker" style=${`left:${percent(marker) ?? 0}%`} title=${`${marker}% of limit`}></i>`}
+      </div><span class="hbar-value">${r.display ?? fmt(r.value)}</span>${r.extra ? html`<div class="hbar-extra">${r.extra}</div>` : ''}</div>`;
+  })}</div>` : html`<p class="empty">${empty}</p>`;
+}
+
 export function Spark({ data, color = C.codex, width = 64, height = 18 }) {
   if (!data?.length) return html`<span></span>`;
   const max = Math.max(1, ...data), n = data.length;

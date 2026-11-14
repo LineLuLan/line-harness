@@ -48,7 +48,7 @@ test('modelCompare: ledger fallback, last linked owner, unknown fail denominator
   let d = q.modelCompare(s.db, r, 'Standard-A');
   assert.equal(d.runNotice, 'tier filter needs ledger links'); assert.equal(d.runs.length, 2);
   assert.deepEqual([d.outcomes[0].tasks, d.outcomes[0].firstPassPct, d.outcomes[0].firstPassN, d.outcomes[0].meanFailRounds,
-    d.outcomes[0].stopPct, d.outcomes[0].defectsAfterWorker, d.outcomes[0].defectsN, d.outcomes[0].lowData], [2, 0, 1, 2, 50, 6, 1, true]);
+    d.outcomes[0].stopPct, d.outcomes[0].defectsAfterWorker, d.outcomes[0].defectsN, d.outcomes[0].lowData], [2, 0, 2, 2, 50, 6, 1, true]);
   ledger('three', 'Standard-A');
   assert.equal(q.modelCompare(s.db, r).outcomes[0].lowData, false);
   link('one', 'a'); link('one', 'b');
@@ -127,14 +127,14 @@ test('H8b: newest pairs and violations capped at 20, weekly trend covers latest 
   assert.ok(!d.weeks.some(x => x.week === q.weekOf(day(now - 200 * 86400))), 'old occupied weeks must not displace recent empty weeks');
 });
 
-test('H8b: empty range and all-unknown values stay null; only explicit field-3 evidence counts', t => {
+test('H8b: empty range stays empty; unknown first-pass rows count in the denominator; only explicit field-3 evidence counts', t => {
   const { s, r, now, run, ledger } = fixture(t);
   assert.deepEqual(q.modelCompare(s.db, r).runs, []); assert.deepEqual(q.modelCompare(s.db, r).outcomes, []);
   assert.equal(q.gates(s.db, r).tasks, 0);
   run('unknown', undefined, { exit_code: null, ended: null });
   ledger('unknown', 'Standard (legacy)', { fail_rounds: null, l2_count: null, l3_count: null });
   let d = q.modelCompare(s.db, r);
-  assert.deepEqual([d.runs[0].exit0Pct, d.runs[0].medianSecs, d.outcomes[0].firstPassPct, d.outcomes[0].meanFailRounds, d.outcomes[0].defectsAfterWorker], [null, null, null, null, null]);
+  assert.deepEqual([d.runs[0].exit0Pct, d.runs[0].medianSecs, d.outcomes[0].firstPassPct, d.outcomes[0].meanFailRounds, d.outcomes[0].defectsAfterWorker], [null, null, 0, null, null]);
   for (const text of ['Astra', 'Opus', 'Sol', 'codex review', 'subagent']) ledger(text, 'Important', { layer2: parseLedger(`2026-11-14|Important|${text}|0|0|0|review`).row.layer2 });
   ledger('explicit', 'Important', { layer2: parseLedger('2026-11-14|Important|yes|0|0|0|review').row.layer2 });
   ledger('future', 'Critical', { day: day(now + 86400) });

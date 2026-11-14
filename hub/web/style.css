@@ -588,3 +588,169 @@ td.wrap { white-space: normal; overflow-wrap: anywhere; }
   .content:has(.model-page, .evidence-scroll) .ranges { max-width: 100%; flex-wrap: wrap; }
   .content:has(.model-page, .evidence-scroll) .ranges button { padding-left: 8px; padding-right: 8px; }
 }
+
+/* Intent: compact six-page layout; Overview fills the available desktop height without clipping.
+ * Status: responsive grid. Next: host viewport checks. Blockers: none. Confidence: fixture renders. */
+.overview-page { display: grid; gap: var(--gap); min-width: 0; }
+.overview-top { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: var(--gap); }
+.overview-top .card-head { flex-wrap: wrap; gap: 4px; }
+.overview-top .attn li { padding: 5px 0; gap: 8px; }
+.overview-top .attn .what b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.overview-page .kpi .value { font-size: 26px; }
+.overview-page .kpi .sub { white-space: normal; }
+.quota-rows { display: grid; gap: 10px; }
+.quota-row { display: grid; grid-template-columns: minmax(95px, 1fr) minmax(70px, 1.6fr) auto; align-items: center; gap: 4px 10px; }
+.quota-name { font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quota-track { height: 10px; position: relative; border-radius: 3px; background: var(--track); }
+.quota-used { display: block; height: 100%; border-radius: inherit; }
+.quota-tick { position: absolute; top: -3px; bottom: -3px; border-left: 2px solid white; transform: translateX(-1px); filter: drop-shadow(0 0 1px #111); }
+.quota-tick.projected { border-left: 2px dashed var(--ink); top: -5px; bottom: -5px; filter: none; }
+.quota-left { font-size: 12px; white-space: nowrap; }
+.quota-meta { grid-column: 2 / -1; font-size: 10px; color: var(--muted); }
+.quota-legend { margin: 8px 0 0; font-size: 10px; }
+.slim-page { min-width: 0; }
+.slim-page .card-head { flex-wrap: wrap; gap: 6px; }
+.slim-page .fill { min-width: 0; overflow-x: auto; }
+.table-scroll { max-width: 100%; overflow-x: auto; }
+.table-scroll table { min-width: 440px; }
+.defects { display: flex; align-items: center; gap: 6px; min-width: 80px; }
+.defects > :first-child { flex: 1; }
+.model-rank { display: grid; grid-template-columns: minmax(80px, 1.5fr) minmax(35px, 1fr) 50px 65px; gap: 8px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--track); font-size: 12px; }
+.model-rank.head { color: var(--muted); font-size: 11px; }
+.forecast-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.forecast-one { min-width: 0; }
+.forecast-one h4 { margin: 0; font-size: 12px; }
+.forecast-one p { margin: 4px 0; font-size: 12px; }
+.machine-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.machine-kpis .label { display: block; color: var(--muted); font-size: 11px; text-transform: uppercase; }
+.machine-kpis b { display: block; font: 600 24px var(--font-display); }
+@media (min-width: 1101px) {
+  .content:has(.overview-main) > .bar { flex-shrink: 0; }
+  main.overview-main { flex: 1; min-height: 0; }
+  .overview-page { flex: 1; min-height: 0; grid-template-rows: auto auto minmax(230px, 1fr); }
+  .overview-page > .card > .fill { display: flex; flex-direction: column; }
+  .overview-page > .card .chart { flex: 1; }
+}
+@media (max-width: 1100px) {
+  .overview-top, .forecast-grid { grid-template-columns: minmax(0, 1fr); }
+  .overview-page .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  .content:has(.slim-page, .overview-page) .ranges { flex-wrap: wrap; max-width: 100%; }
+  .slim-page table { font-size: 11px; }
+  .slim-page td, .slim-page th { padding: 6px 3px; }
+  .slim-page td.wrap, .slim-page td.path { overflow-wrap: anywhere; }
+  .slim-page .card-tools { max-width: 100%; }
+  .overview-page .kpis, .machine-kpis { grid-template-columns: minmax(0, 1fr); }
+  .quota-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .quota-name { grid-column: 1 / -1; }
+  .quota-meta { grid-column: 1 / -1; }
+  .model-rank { grid-template-columns: minmax(0, 1fr) 36px 42px 48px; gap: 4px; font-size: 10px; }
+}
+
+/* Intent: Work/Machine charts fit their content and remain readable in both themes.
+ * Status: H11, scoped to the two pages and their new pure helpers. Next: host 1440/390 checks.
+ * Blockers: no browser layout assertion here. Confidence: empty/populated render fixtures. */
+.stats-page, .stats-page .fill, .stats-page svg, .hbar-list, .hbar-row > * { min-width: 0; max-width: 100%; }
+.stats-page > .grid { align-items: start; gap: 10px; }
+.stats-page .card { padding: 12px; }
+.stats-page .fill { overflow: visible; }
+.stats-page .card-tools { flex-wrap: wrap; }
+.stats-page .card:has(.review-clear) > .fill { display: none; }
+.stats-page .year { --cell: calc((100cqw - 26px) / var(--weeks) - 2px); grid-template-columns: 26px repeat(var(--weeks), var(--cell)); gap: 2px; }
+.stats-page .year-head, .stats-page .radar-wrap, .stats-page .radar-legend { gap: 8px; }
+.stats-page .year-sum { font-size: 12px; }
+.stats-page .year-sum b { font-size: 13px; }
+.stats-page .radar { max-width: 520px; overflow: hidden; }
+.stats-page .suggest { margin-top: 8px; padding: 0; border: 0; }
+.stats-page .suggest h4 { margin: 0 0 4px; font-size: 12px; }
+.stats-page .suggest p { margin: 3px 0; font-size: 11px; line-height: 1.4; color: var(--muted); }
+.stats-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 8px; font-size: 11px; color: var(--muted); }
+.stats-list { list-style: none; padding: 0; margin: 0; }
+.stats-list li { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; min-width: 0; font-size: 12px; }
+.stats-list time { flex: none; font-size: 11px; color: var(--muted); }
+.stats-list li > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stats-page .compact { margin: 6px 0 0; padding: 0; }
+.stat-ring { width: 94px; min-width: 0; text-align: center; }
+.stat-ring svg { display: block; width: 100%; height: auto; }
+.stat-ring text { fill: var(--ink); font: 600 19px var(--font-mono); }
+.stat-ring.unknown text { fill: var(--muted); }
+.ring-label { display: block; color: var(--muted); font-size: 11px; line-height: 1.3; }
+.stat-donut { display: flex; align-items: center; gap: 10px; margin-top: 10px; min-width: 0; }
+.stat-donut svg { width: 116px; max-width: 35%; flex: none; height: auto; }
+.stat-donut text { fill: var(--ink); font: 600 21px var(--font-mono); }
+.donut-legend { display: grid; gap: 5px; min-width: 0; font-size: 12px; }
+.donut-legend > b { font-weight: 500; color: var(--muted); }
+.donut-legend > span { display: flex; gap: 6px; align-items: center; }
+.donut-legend > span > b { margin-left: auto; font: 500 12px var(--font-mono); }
+.hbar-list { display: grid; gap: 10px; }
+.hbar-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 8px; align-items: center; }
+.hbar-name { grid-column: 1 / -1; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hbar-track { position: relative; min-width: 0; background: var(--track); border-radius: 2px; }
+.hbar-marker { position: absolute; top: -3px; bottom: -3px; border-left: 1px dashed var(--ink); pointer-events: none; }
+.hbar-value { font: 500 11px var(--font-mono); text-align: right; white-space: nowrap; }
+.hbar-extra { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
+.worker-ranks .hbar-row { grid-template-columns: minmax(0, 1fr) auto 112px; }
+.worker-ranks .hbar-name { grid-column: 1 / 3; align-self: end; }
+.worker-ranks .hbar-extra { grid-column: 3; grid-row: 1 / 3; }
+.worker-ranks .stat-ring { width: 52px; }
+.worker-ranks .stat-ring text { font-size: 21px; }
+.worker-ranks .ring-label { font-size: 10px; white-space: nowrap; }
+.growth-chip { padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; font: 500 10px var(--font-mono); }
+.machine-rings { display: flex; flex-wrap: wrap; justify-content: space-around; align-items: center; gap: 10px; }
+.hook-stat { display: grid; gap: 5px; justify-items: center; }
+.hook-stat b { font: 600 19px var(--font-mono); }
+.status-dot { display: inline-block; width: 7px; height: 7px; margin-right: 5px; border-radius: 50%; }
+.alert-timeline svg { display: block; width: 100%; height: auto; }
+.alert-timeline text { fill: var(--muted); font: 11px var(--font-mono); }
+.alert-timeline .stats-legend { margin: 0 0 6px; }
+@media (max-width: 600px) {
+  .stats-page .card { padding: 10px; }
+  .stats-page .year .mon, .stats-page .year .dow { font-size: 8px; }
+  .stats-page .year-head { gap: 6px; }
+  .stats-page .year-sum { font-size: 11px; }
+  .machine-rings .stat-ring { width: 64px; }
+  .hook-stat { width: 100%; }
+  .worker-ranks .hbar-row { grid-template-columns: minmax(0, 1fr) auto 100px; gap: 5px; }
+  .worker-ranks .stat-ring { width: 46px; }
+  .worker-ranks .hbar-extra { gap: 4px; }
+  .alert-timeline text { font-size: 24px; }
+  .alert-timeline .alert-dot { r: 5px; }
+  .stats-list .alert-item time { max-width: 86px; white-space: normal; }
+}
+
+/* Intent: keep the Work findings card readable at desktop and phone widths.
+ * Status: category/week columns stack below 600px; worker chips wrap. Next: host 390px check.
+ * Blockers: none. Confidence: scoped styles and fixture rendering. */
+.work-findings { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+.work-findings > * { min-width: 0; max-width: 100%; }
+.work-findings h4 { margin: 0 0 12px; font-size: 12px; font-weight: 500; color: var(--muted); }
+.work-findings .hbar-name { white-space: normal; overflow-wrap: anywhere; }
+.finding-workers { grid-column: 1 / -1; }
+.finding-worker { display: flex; align-items: baseline; gap: 8px 12px; margin-top: 8px; }
+.finding-model { flex: 0 1 150px; min-width: 0; font: 500 12px var(--font-mono); overflow-wrap: anywhere; }
+.finding-chips { display: flex; flex: 1; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.finding-chip { display: inline-flex; gap: 8px; max-width: 100%; padding: 3px 7px; border: 1px solid var(--line); border-radius: 4px; font-size: 11px; overflow-wrap: anywhere; }
+.finding-chip b { flex: none; font-family: var(--font-mono); }
+@media (max-width: 600px) {
+  .work-findings { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .finding-worker { flex-direction: column; gap: 5px; }
+  .finding-model { flex-basis: auto; }
+}
+
+/* ---------- Flow page (2026-11-15 v2): one-screen pipeline diagram, NVIDIA-style rails, Hub theme tokens only ---------- */
+.flow-wrap { height: calc(100vh - 118px); min-height: 460px; background: radial-gradient(ellipse at 50% 40%, var(--surface), var(--paper)); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s3); }
+.flow-svg { width: 100%; height: 100%; display: block; }
+.flow-svg .f-h1 { font: 800 26px var(--font-display); letter-spacing: -.01em; }
+.flow-svg .f-h2 { font: 500 13px var(--font-body); fill: var(--muted); }
+.flow-svg .f-rail { font: 700 13.5px var(--font-display); fill: var(--ink); }
+.flow-svg .f-chip { font: 600 10px var(--font-mono); fill: var(--ink); letter-spacing: .03em; }
+.flow-svg .f-title { font: 700 13px var(--font-display); fill: var(--ink); }
+.flow-svg .f-sub { font: 500 11px var(--font-body); fill: var(--muted); }
+.flow-svg .f-label { font: 600 11px var(--font-mono); letter-spacing: .02em; }
+.flow-svg .f-tag { font: 500 12px var(--font-mono); fill: var(--muted); }
+.flow-svg .f-step { font: 800 11px var(--font-mono); fill: var(--on-accent); text-anchor: middle; }
+.flow-svg .f-badge { font: 800 10px var(--font-mono); fill: var(--aurora); letter-spacing: .08em; }
+.flow-svg .f-node { transition: transform .15s ease; transform-box: fill-box; transform-origin: center; }
+.flow-svg .f-node:hover { transform: scale(1.08); }
+@media (max-width: 760px) { .flow-wrap { height: auto; min-height: 0; padding: var(--s2); } }

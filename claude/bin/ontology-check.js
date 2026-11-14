@@ -68,8 +68,8 @@ function validate(o) {
  * Next: none. Blockers: none. Confidence: CLI fixtures. */
 function options(args) {
   const home = process.env.USERPROFILE || os.homedir();
-  const opts = { claudeDir: path.join(home, '.claude'), codexDir: path.join(home, '.codex') };
-  const paths = { '--ontology': 'ontology', '--claude-dir': 'claudeDir', '--codex-dir': 'codexDir', '--repo': 'repo' };
+  const opts = { claudeDir: path.join(home, '.claude'), codexDir: path.join(home, '.codex'), stateDir: path.join(home, '.claude/state') };
+  const paths = { '--ontology': 'ontology', '--claude-dir': 'claudeDir', '--codex-dir': 'codexDir', '--repo': 'repo', '--state-dir': 'stateDir' };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (paths[arg]) {
@@ -82,6 +82,102 @@ function options(args) {
   return opts;
 }
 
+/* Intent: validate defect types and metric definitions, skipping only absent checklist docs.
+ * Status: complete. Next: none. Blockers: none. Confidence: isolated CLI schema tests. */
+function checkKnowledge(o, opts, add, info) {
+  const object = x => x && typeof x === 'object' && !Array.isArray(x);
+  const string = x => typeof x === 'string' && x.trim().length > 0;
+  const need = (ok, field) => { if (!ok) add('BLOCKS', `invalid ontology: ${field}`); };
+  const categories = o.defectCategories, ids = new Set();
+  need(Array.isArray(categories), 'defectCategories must be an array');
+  if (Array.isArray(categories)) {
+    for (const [i, category] of categories.entries()) {
+      const field = `defectCategories[${i}]`;
+      if (!object(category)) { need(false, `${field} must be an object`); continue; }
+      need(string(category.id) && /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(category.id), `${field}.id must be kebab-case`);
+      need(!ids.has(category.id), `${field}.id duplicate: ${category.id}`); ids.add(category.id);
+      for (const key of ['label', 'countermeasure']) need(string(category[key]), `${field}.${key}`);
+      need(category.checklist === null || (Array.isArray(category.checklist)
+        && category.checklist.every(n => Number.isInteger(n) && n > 0)), `${field}.checklist`);
+      need(Array.isArray(category.keywords) && category.keywords.length >= 3 && category.keywords.length <= 6
+        && category.keywords.every(x => string(x) && x === x.toLowerCase()), `${field}.keywords must contain 3-6 lowercase hints`);
+    }
+    need(ids.has('other'), 'defectCategories must include other');
+    need(categories.at(-1)?.id === 'other', 'defectCategories other must be last');
+  }
+  const date = x => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x)
+    && Number.isFinite(Date.parse(`${x}T00:00:00Z`)) && new Date(`${x}T00:00:00Z`).toISOString().slice(0, 10) === x;
+  const scope = (x, allowed) => Array.isArray(x) && x.length > 0
+    && (x.length === 1 && x[0] === '*' || x.every(v => allowed.includes(v)));
+  const lessonIds = new Set();
+  need(Array.isArray(o.lessons), 'lessons must be an array');
+  if (Array.isArray(o.lessons)) for (const [i, lesson] of o.lessons.entries()) {
+    const field = `lessons[${i}]`;
+    if (!object(lesson)) { need(false, `${field} must be an object`); continue; }
+    need(string(lesson.id) && /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(lesson.id), `${field}.id must be kebab-case`);
+    need(!lessonIds.has(lesson.id), `${field}.id duplicate: ${lesson.id}`); lessonIds.add(lesson.id);
+    need(ids.has(lesson.category), `${field}.category must exist in defectCategories`);
+    // Imperative wording is a certification review judgment; lint checks nonempty, single-line text.
+    need(string(lesson.rule) && !/[\r\n]/.test(lesson.rule), `${field}.rule`);
+    need(['draft', 'certified', 'deprecated'].includes(lesson.status), `${field}.status`);
+    need(object(lesson.appliesTo), `${field}.appliesTo`);
+    if (object(lesson.appliesTo)) {
+      need(scope(lesson.appliesTo.types, ['ui', 'collector', 'review', 'research', 'docs', 'config', 'other']), `${field}.appliesTo.types`);
+      need(scope(lesson.appliesTo.tiers, ['Skip', 'Standard-A', 'Standard-B', 'Important', 'Critical', 'Exploration']), `${field}.appliesTo.tiers`);
+    }
+    need(Array.isArray(lesson.evidence) && lesson.evidence.every(x => string(x)
+      && (x.startsWith('ledger:') ? /^ledger:\d{4}-\d{2}-\d{2}:\S+$/.test(x) && date(x.slice(7, 17)) : !/\s|:/.test(x)))
+      && (lesson.status !== 'certified' || lesson.evidence.length >= 2), `${field}.evidence`);
+    need(date(lesson.added), `${field}.added must be yyyy-mm-dd`);
+  }
+  need(object(o.metrics), 'metrics must be an object');
+  if (object(o.metrics)) for (const [id, metric] of Object.entries(o.metrics)) {
+    const field = `metrics.${id}`;
+    if (!object(metric)) { need(false, `${field} must be an object`); continue; }
+    for (const key of ['label', 'definition', 'source']) need(string(metric[key]), `${field}.${key}`);
+    need(['draft', 'certified', 'deprecated'].includes(metric.status), `${field}.status`);
+  }
+  if (!Array.isArray(categories)) return;
+  const file = path.join(opts.claudeDir, 'docs/packet-checklist.md');
+  let checklist;
+  try { checklist = fs.readFileSync(file, 'utf8'); }
+  catch (e) {
+    if (e.code !== 'ENOENT') throw e;
+    info.push(`${file}: missing; skipping checklist number existence check`); return;
+  }
+  const numbers = new Set([...checklist.matchAll(/^\s*(\d+)\.\s+(?:\[[^\]\r\n]+\]\s+)?check:/gm)].map(x => Number(x[1])));
+  for (const category of categories) if (Array.isArray(category?.checklist)) {
+    for (const n of category.checklist) need(numbers.has(n), `defectCategories.${category.id}.checklist number ${n} not found in ${file}`);
+  }
+}
+
+/* Intent: propose lessons from recurring finding facts without changing sensor exit codes.
+ * Status: complete. Next: P3 certification. Blockers: none. Confidence: dated JSONL fixtures. */
+function proposeLessons(o, opts, info) {
+  const file = path.join(opts.stateDir, 'findings.jsonl');
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); }
+  catch (e) { if (e.code !== 'ENOENT') info.push(`findings unreadable: ${e.code}`); return; }
+  const now = Date.now(), cutoff = now - 14 * 86400000, counts = new Map();
+  for (const line of text.split(/\r?\n/)) {
+    let row;
+    try { row = JSON.parse(line); } catch { continue; }
+    if (!row || typeof row !== 'object' || Array.isArray(row)
+      || (Object.hasOwn(row, 'kind') && row.kind !== 'finding')) continue;
+    if (typeof row.utc !== 'string'
+      || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|[+-]\d{2}:\d{2})$/.test(row.utc)) continue;
+    const utc = Date.parse(row.utc), day = Date.parse(`${row.utc.slice(0, 10)}T00:00:00Z`);
+    if (!Number.isFinite(utc) || !Number.isFinite(day) || new Date(day).toISOString().slice(0, 10) !== row.utc.slice(0, 10)
+      || row.utc.slice(11, 13) > '23' || utc < cutoff || utc > now || typeof row.category !== 'string') continue;
+    counts.set(row.category, (counts.get(row.category) || 0) + 1);
+  }
+  const certified = new Set((Array.isArray(o.lessons) ? o.lessons : []).filter(x => x?.status === 'certified').map(x => x.category));
+  for (const category of Array.isArray(o.defectCategories) ? o.defectCategories : []) {
+    const n = counts.get(category?.id) || 0;
+    if (n >= 3 && !certified.has(category.id)) info.push(`LESSON: ${category.id} has ${n} findings in 14 days and no certified lesson - propose one`);
+  }
+}
+
 /* Intent: compare generated text, configured hooks, scoped twins and stale prose.
  * Status: complete. Next: install after review. Blockers: none. Confidence: temp-dir tests. */
 function check(o, opts) {
@@ -89,6 +185,8 @@ function check(o, opts) {
     .map(x => `${x.id}: enforced outside the guide - prose copies can be pruned`);
   const add = (check, message) => findings.push({ check, message });
   const guard = (kind, action) => { try { action(); } catch (e) { add(kind, e.message); } };
+  guard('BLOCKS', () => checkKnowledge(o, opts, add, info));
+  guard('BLOCKS', () => proposeLessons(o, opts, info));
   const entries = dir => {
     try { return fs.readdirSync(dir, { withFileTypes: true }); }
     catch (e) { if (e.code === 'ENOENT') return []; throw e; }

@@ -9,39 +9,33 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { start } = require('../server/server');
 
-const PAGES = ['overview', 'supervisor', 'workers', 'models', 'cost', 'productivity', 'harness', 'gates', 'system', 'trace'];
+const PAGES = ['overview', 'flow', 'work', 'cost', 'machine', 'trace'];
 const DAYS = [1, 7, 14, 30, 90];
 // Imported from a data: URL so Node reads it as an ES module without a package.json "type" warning
 // (route.js has no imports of its own).
 const load = () => import(`data:text/javascript,${encodeURIComponent(fs.readFileSync(path.resolve(__dirname, '../web/route.js'), 'utf8'))}`);
 
-test('readRoute: plain page, models with and without a key, encoded "/", bad percent-encoding, fallbacks', async () => {
-  const { readRoute, hashOf } = await load();
+test('readRoute: six pages, old model keys redirect, malformed keys and fallbacks', async () => {
+  const { readRoute } = await load();
   const read = h => readRoute(h, PAGES, DAYS);
-  assert.deepEqual(read('#workers?days=30'), { page: 'workers', days: 30, model: null });
-  assert.deepEqual(read('#workers/extra?days=7'), { page: 'workers', days: 7, model: null }, 'only models takes a key');
-  assert.deepEqual(read('#models?days=7'), { page: 'models', days: 7, model: null });
-  assert.deepEqual(read('#models/?days=7'), { page: 'models', days: 7, model: null }, 'empty key = no pick');
-  assert.deepEqual(read('#models/gpt-6.1-sol?days=30&theme=dark'), { page: 'models', days: 30, model: 'gpt-6.1-sol' });
-  assert.deepEqual(read(`#${hashOf('models', 14, 'a/b c')}`), { page: 'models', days: 14, model: 'a/b c' }, 'an encoded "/" stays inside the key');
-  assert.equal(hashOf('models', 14, 'a/b c'), 'models/a%2Fb%20c?days=14');
-  assert.deepEqual(read('#models/codex%3AOpus?days=7'), { page: 'models', days: 7, model: 'codex:Opus' });
-  assert.deepEqual(read('#models/%E0%A4%A?days=7'), { page: 'models', days: 7, model: null }, 'bad percent-encoding drops the pick');
+  for (const page of PAGES) assert.deepEqual(read(`#${page}?days=30`), { page, days: 30, model: null });
+  for (const key of ['', '/', '/gpt-6.1-sol', '/a%2Fb%20c', '/codex%3AOpus', '/%E0%A4%A']) {
+    assert.deepEqual(read(`#models${key}?days=7`), { page: 'cost', days: 7, model: null });
+  }
+  assert.deepEqual(read('#workers/extra?days=7'), { page: 'work', days: 7, model: null });
   assert.deepEqual(read('#usage?days=90'), { page: 'cost', days: 90, model: null });
-  assert.deepEqual(read('#nope?days=5'), { page: 'overview', days: 14, model: null });
-  assert.deepEqual(read(''), { page: 'overview', days: 14, model: null });
+  for (const hash of ['#nope?days=5', '', '#__proto__', '#constructor']) {
+    assert.deepEqual(read(hash), { page: 'overview', days: 14, model: null });
+  }
 });
 
-test('hashOf: a range switch keeps the pick, a new pick keeps the range, round trip', async () => {
+test('hashOf: range switches retain the resolved page; legacy model hashes land on Usage', async () => {
   const { readRoute, hashOf } = await load();
   const read = h => readRoute(h, PAGES, DAYS);
   const now = read(`#${hashOf('models', 30, 'gpt-6-astra')}`);
-  const ranged = read(`#${hashOf(now.page, 7, now.model)}`);
-  assert.deepEqual(ranged, { page: 'models', days: 7, model: 'gpt-6-astra' });
-  const picked = read(`#${hashOf('models', ranged.days, "gpt-q'uote")}`);
-  assert.deepEqual(picked, { page: 'models', days: 7, model: "gpt-q'uote" });
+  assert.deepEqual(read(`#${hashOf(now.page, 7, now.model)}`), { page: 'cost', days: 7, model: null });
   assert.equal(hashOf('trace', 1), 'trace?days=1');
-  assert.equal(hashOf('models', 30, null), 'models?days=30');
+  assert.equal(hashOf('models', 14, 'a/b c'), 'models/a%2Fb%20c?days=14');
 });
 
 test('/route.js is on the static allowlist as JavaScript under the same CSP', async t => {

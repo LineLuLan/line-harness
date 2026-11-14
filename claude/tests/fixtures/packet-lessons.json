@@ -1,0 +1,12 @@
+{
+  "defectCategories": [
+    { "id": "contradiction", "countermeasure": "Resolve conflicting requirements." },
+    { "id": "ps51-traps", "countermeasure": "Check PowerShell 5.1 syntax." },
+    { "id": "other", "countermeasure": "Describe the defect." }
+  ],
+  "lessons": [
+    { "id": "resolve-conflicts", "category": "contradiction", "rule": "Resolve conflicting requirements.", "appliesTo": { "types": ["config"], "tiers": ["Important", "Critical", "Standard-B"] }, "status": "certified", "evidence": ["finding-1", "finding-2"], "added": "2026-11-15" },
+    { "id": "draft-syntax", "category": "ps51-traps", "rule": "Check PowerShell syntax.", "appliesTo": { "types": ["*"], "tiers": ["*"] }, "status": "draft", "evidence": [], "added": "2026-11-15" },
+    { "id": "old-rule", "category": "other", "rule": "Describe the defect.", "appliesTo": { "types": ["*"], "tiers": ["*"] }, "status": "deprecated", "evidence": [], "added": "2026-11-15" }
+  ]
+}

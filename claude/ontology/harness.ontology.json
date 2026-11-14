@@ -1,7 +1,422 @@
 {
   "$comment": "Line Harness ontology: the single source for routing, quota, review and permission rules. Consumers: Line Hub (routeAdvice, alert RULES), CLAUDE.md generated blocks, ontology-check sensor. Edit here, then run ontology-check --write. Owner: Line. Values copied from the live system on 2026-11-15.",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "updated": "2026-11-15",
+  "defectCategories": [
+    {
+      "id": "contradiction",
+      "label": "Contradictory requirements",
+      "checklist": [
+        1
+      ],
+      "countermeasure": "Resolve conflicts between criteria, constraints, fixtures, and tests, and give each term one meaning.",
+      "keywords": [
+        "contradiction",
+        "conflict",
+        "criterion",
+        "meaning"
+      ]
+    },
+    {
+      "id": "sandbox-validate",
+      "label": "Sandbox validation",
+      "checklist": [
+        2
+      ],
+      "countermeasure": "Provide validation commands that run in the worker sandbox or name the steps the supervisor must run on the host.",
+      "keywords": [
+        "sandbox",
+        "validate",
+        "permission",
+        "network"
+      ]
+    },
+    {
+      "id": "salvage-resume",
+      "label": "Salvage and fresh sessions",
+      "checklist": [
+        3
+      ],
+      "countermeasure": "Include stop rules and a salvage note, and request a fresh session after a sub-agent thread.",
+      "keywords": [
+        "salvage",
+        "resume",
+        "session",
+        "recovery"
+      ]
+    },
+    {
+      "id": "ui-widths",
+      "label": "UI width coverage",
+      "checklist": [
+        4
+      ],
+      "countermeasure": "Test UI widths of 320, 400, 640, 1024, and 1440 pixels with no horizontal overflow or clipped text.",
+      "keywords": [
+        "width",
+        "overflow",
+        "clipped",
+        "responsive"
+      ]
+    },
+    {
+      "id": "docs-style",
+      "label": "Documentation style",
+      "checklist": [
+        5
+      ],
+      "countermeasure": "Require STE short sentences, active voice, and no non-STE words, and name the STE check.",
+      "keywords": [
+        "docs",
+        "style",
+        "ste",
+        "sentence"
+      ]
+    },
+    {
+      "id": "encoding",
+      "label": "File encoding",
+      "checklist": [
+        6
+      ],
+      "countermeasure": "Specify UTF-8 without BOM and LF or the repository line ending when changing non-ASCII text.",
+      "keywords": [
+        "encoding",
+        "utf8",
+        "bom",
+        "mojibake"
+      ]
+    },
+    {
+      "id": "docs-sync",
+      "label": "Documentation synchronization",
+      "checklist": [
+        7
+      ],
+      "countermeasure": "Include documents that quote counts, file names, or rules in FILES and update them with the code.",
+      "keywords": [
+        "docs",
+        "sync",
+        "counts",
+        "stale"
+      ]
+    },
+    {
+      "id": "source-of-truth",
+      "label": "Source of truth",
+      "checklist": [
+        8
+      ],
+      "countermeasure": "Read each value from its source of truth and name every fallback instead of using silent defaults.",
+      "keywords": [
+        "source",
+        "config",
+        "fallback",
+        "default"
+      ]
+    },
+    {
+      "id": "concurrency",
+      "label": "Concurrency and ordering",
+      "checklist": [
+        9
+      ],
+      "countermeasure": "State concurrency, cache, and ordering behaviour and require a test for each.",
+      "keywords": [
+        "concurrency",
+        "cache",
+        "ordering",
+        "race"
+      ]
+    },
+    {
+      "id": "fixture-secret",
+      "label": "Fixture secret gates",
+      "checklist": [
+        10
+      ],
+      "countermeasure": "Use dummy fixture values shorter than the secret-gate pattern and omit console.log.",
+      "keywords": [
+        "fixture",
+        "secret",
+        "dummy",
+        "console"
+      ]
+    },
+    {
+      "id": "real-path",
+      "label": "Real execution path",
+      "checklist": [
+        11
+      ],
+      "countermeasure": "Include at least one criterion that runs the real stack, real data, or a real run beyond mocks or holds.",
+      "keywords": [
+        "real",
+        "stack",
+        "mock",
+        "integration"
+      ]
+    },
+    {
+      "id": "formatter-lint",
+      "label": "Formatter and static checks",
+      "checklist": [
+        12
+      ],
+      "countermeasure": "Run the repository formatter, lint, and typecheck on changed files in VALIDATE.",
+      "keywords": [
+        "formatter",
+        "lint",
+        "typecheck",
+        "validate"
+      ]
+    },
+    {
+      "id": "env-tools",
+      "label": "Environment and tools",
+      "checklist": [
+        13
+      ],
+      "countermeasure": "Name every environment variable and tool required by the build and run steps.",
+      "keywords": [
+        "environment",
+        "tools",
+        "build",
+        "path"
+      ]
+    },
+    {
+      "id": "scope-creep",
+      "label": "Scope control",
+      "checklist": [
+        14
+      ],
+      "countermeasure": "Bound the work with FILES and NON-GOALS and forbid rewriting lines outside the change.",
+      "keywords": [
+        "scope",
+        "files",
+        "rewrite",
+        "unrelated"
+      ]
+    },
+    {
+      "id": "ps51-traps",
+      "label": "PowerShell 5.1 traps",
+      "checklist": [
+        15,
+        16
+      ],
+      "countermeasure": "Address PowerShell 5.1 array unrolling, paths with spaces, and $PSScriptRoot parameter defaults, and validate syntax with powershell -NoProfile -File ~/.claude/bin/ps-parse-check.ps1 <file...> instead of an inline parser call.",
+      "keywords": [
+        "powershell",
+        "array",
+        "quoting",
+        "parser",
+        "psscriptroot"
+      ]
+    },
+    {
+      "id": "missing-criterion",
+      "label": "Missing success criterion",
+      "checklist": null,
+      "countermeasure": "Write one testable SUCCESS CRITERIA line for every behaviour the change must keep or add.",
+      "keywords": [
+        "criterion",
+        "missing",
+        "coverage",
+        "behaviour"
+      ]
+    },
+    {
+      "id": "unverified-claim",
+      "label": "Unverified completion claim",
+      "checklist": null,
+      "countermeasure": "Ask the worker to paste the command output for every claim of done.",
+      "keywords": [
+        "unverified",
+        "claim",
+        "output",
+        "evidence"
+      ]
+    },
+    {
+      "id": "logic-bug",
+      "label": "Logic defect",
+      "checklist": null,
+      "countermeasure": "Give a worked example with input and expected output for each non-trivial rule.",
+      "keywords": [
+        "logic",
+        "input",
+        "output",
+        "rule"
+      ]
+    },
+    {
+      "id": "other",
+      "label": "Other defect",
+      "checklist": null,
+      "countermeasure": "Describe the defect in the finding title.",
+      "keywords": [
+        "other",
+        "unknown",
+        "uncategorized"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "id": "ui-check-390-1440",
+      "category": "ui-widths",
+      "rule": "Name the 390 px and 1440 px checks in VALIDATE, require no horizontal overflow and no clipped text, and have the supervisor screenshot both before PASS.",
+      "appliesTo": {
+        "types": [
+          "ui"
+        ],
+        "tiers": [
+          "*"
+        ]
+      },
+      "status": "certified",
+      "evidence": [
+        "71816a5e6b6c75d8",
+        "6a48994ba60d32ca",
+        "a64f3719fbf8fd90",
+        "c33900d0e0efe8fe"
+      ],
+      "added": "2026-11-15"
+    },
+    {
+      "id": "files-list-complete",
+      "category": "missing-criterion",
+      "rule": "List every file the change must touch, including shared helpers, and tell the worker to STOP and name the file when it needs another one.",
+      "appliesTo": {
+        "types": [
+          "*"
+        ],
+        "tiers": [
+          "*"
+        ]
+      },
+      "status": "certified",
+      "evidence": [
+        "bb8d405fb05da432",
+        "6cb839152ee9a06e",
+        "32d79cd0171afb61"
+      ],
+      "added": "2026-11-15"
+    },
+    {
+      "id": "one-source-values",
+      "category": "source-of-truth",
+      "rule": "Name the source of truth for every value the change reads and the fallback when it is missing; never copy constants by hand.",
+      "appliesTo": {
+        "types": [
+          "*"
+        ],
+        "tiers": [
+          "*"
+        ]
+      },
+      "status": "certified",
+      "evidence": [
+        "a290980850597956",
+        "349d1f5f21df7abc",
+        "1bac4466e11ec079"
+      ],
+      "added": "2026-11-15"
+    },
+    {
+      "id": "sandbox-host-split",
+      "category": "sandbox-validate",
+      "rule": "Mark which VALIDATE commands run in the worker sandbox and which the supervisor runs on the host, and pass the repo root as -Dir.",
+      "appliesTo": {
+        "types": [
+          "*"
+        ],
+        "tiers": [
+          "*"
+        ]
+      },
+      "status": "certified",
+      "evidence": [
+        "5bda1763542c8f9a",
+        "f34c073e12d2e761",
+        "e900f686c2cb8c72"
+      ],
+      "added": "2026-11-15"
+    },
+    {
+      "id": "declare-not-parse",
+      "category": "logic-bug",
+      "rule": "When code must read model output, ask the model for a JSON block and validate it against a schema; never parse free text with regex.",
+      "appliesTo": {
+        "types": [
+          "review",
+          "config",
+          "collector"
+        ],
+        "tiers": [
+          "*"
+        ]
+      },
+      "status": "certified",
+      "evidence": [
+        "5fd2c28c2b9cf02c",
+        "a242fd33c31be63a",
+        "087f49de2ef5b785"
+      ],
+      "added": "2026-11-15"
+    },
+    {
+      "id": "proof-for-claims",
+      "category": "unverified-claim",
+      "rule": "Every claim of done and every count in a survey carries the command output or the file:line that proves it.",
+      "appliesTo": {
+        "types": [
+          "*"
+        ],
+        "tiers": [
+          "*"
+        ]
+      },
+      "status": "certified",
+      "evidence": [
+        "c550a61d5d7609e8",
+        "fee091e4d546fbb7",
+        "503f10e27b2ad5a9"
+      ],
+      "added": "2026-11-15"
+    },
+    {
+      "id": "shared-file-races",
+      "category": "concurrency",
+      "rule": "State the ordering, locking and retry behaviour for shared files and hooks, and test two writers at the same time.",
+      "appliesTo": {
+        "types": [
+          "config",
+          "collector"
+        ],
+        "tiers": [
+          "*"
+        ]
+      },
+      "status": "certified",
+      "evidence": [
+        "918c0c16ef35349f",
+        "cfc5c47fa93a0614",
+        "2bf76ae764a8b87e"
+      ],
+      "added": "2026-11-15"
+    }
+  ],
+  "metrics": {
+    "first_pass": {
+      "label": "Clean first pass",
+      "status": "certified",
+      "definition": "A ledger task with fail_rounds = 0 and L1 + L2 + L3 findings = 0.",
+      "source": "review-ledger.log"
+    }
+  },
   "objects": {
     "models": [
       {
@@ -556,6 +971,26 @@
     ]
   },
   "rules": [
+    {
+      "id": "layer2-mandatory-important",
+      "text": "Important and Critical ledger lines require layer 2 unless an explicit waiver is recorded in the note.",
+      "date": "2026-11-15",
+      "enforcement": "HOOK",
+      "enforcedBy": [
+        "claude/bin/ledger-add.ps1"
+      ],
+      "note": "Intent: enforce Line's review gate. Status: implemented. Next: supervisor installation. Blockers: none. Confidence: fixture tests."
+    },
+    {
+      "id": "resume-50m-cap",
+      "text": "Codex resumes above 50,000,000 total tokens exit 76; missing usage warns and continues.",
+      "date": "2026-11-15",
+      "enforcement": "HOOK",
+      "enforcedBy": [
+        "claude/bin/codex-do.ps1"
+      ],
+      "note": "Intent: enforce Line's session cap. Status: implemented. Next: supervisor installation. Blockers: none. Confidence: fixture tests."
+    },
     {
       "id": "repo-root-dir",
       "text": "Always pass the repo ROOT as -Dir; one worker per repo at a time.",

@@ -1,4 +1,5 @@
 . (Join-Path $PSScriptRoot 'test-lib.ps1')
+. (Join-Path $PSScriptRoot '..\bin\review-findings-lib.ps1')
 . (Import-TestFunctions (Join-Path $PSScriptRoot '..\bin\codex-review.ps1'))
 # Offline only: parser, verdict rules, paths warning on a temp repo, and the JSONL log. No Codex launch.
 

@@ -1,0 +1,26 @@
+VERDICT: FAIL
+```findings
+[
+  {
+    "severity": "P1",
+    "category": "scope-creep",
+    "title": "Extra work",
+    "location": "src/a.ps1:12",
+    "criterion": "C2"
+  },
+  {
+    "severity": "P2",
+    "category": "encoding",
+    "title": "Broken text",
+    "location": "src/b.ps1:9",
+    "criterion": null
+  },
+  {
+    "severity": "P3",
+    "category": "other",
+    "title": "Other issue",
+    "location": null,
+    "criterion": null
+  }
+]
+```

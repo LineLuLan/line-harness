@@ -304,7 +304,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"C:\\Users\\ADMIN\\.claude\\bin\\ontology-check.js\" --hook --repo D:\\01_Workspaces\\line-harness",
+            "command": "node \"C:\\Users\\ADMIN\\.claude\\bin\\ontology-check.js\" --hook --repo D:/01_Workspaces/line-harness",
             "timeout": 10
           }
         ]

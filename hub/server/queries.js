@@ -172,6 +172,15 @@ function layerClean(raw, count) {
   if (failRounds(text) > 0) return false;
   return text === '' || text === '-' || /^(PASS|n\/?a|none|skip|ok|no FAIL)\b/i.test(text);
 }
+/* Intent: certify one first-pass rule for all ledger views; missing FAIL rounds also check raw cells.
+ * Status: shared by ledgerRows and every downstream percentage. Next: none.
+ * Blockers: none. Confidence: v11 layer, denominator and cross-view fixtures. */
+function firstPassClean(task, fails = task.fail_rounds ?? [1, 2, 3].reduce((n, layer) => n + failRounds(task[`l${layer}_raw`]), 0)) {
+  return (task.fail_rounds ?? 0) === 0
+    && fails === 0
+    && [1, 2, 3].every(layer => layerClean(task[`l${layer}_raw`], task[`l${layer}_count`]));
+}
+
 /* Ledger rows from r.startDay (and before r.endDay when given). FAIL rounds: the collector's
  * failRounds() (FAIL x2 = 2, negations and fail-open words = 0); v7 stores fail_rounds per line.
  * A task is clean ("first-pass clean") when every layer found nothing AND it had no FAIL round.
@@ -183,13 +192,13 @@ function ledgerRows(db, r, withText = false, withOutcome = false) {
   const v7 = hasColumn(db, 'ledger', 'fail_rounds'), v8 = hasColumn(db, 'ledger', 'stop');
   return db.prepare(`SELECT l.id, l.day, t.name tier, l.layer2, l.l1_raw, l.l2_raw, l.l3_raw, l.l1_count, l.l2_count, l.l3_count,
       m.name model, l.note, ${v7 ? 'l.fail_rounds' : 'NULL fail_rounds'}, ${v8 ? 'l.stop' : 'NULL stop'}
-      FROM ledger l LEFT JOIN names t ON t.id=l.tier LEFT JOIN names m ON m.id=l.model WHERE l.day>=? AND l.day<?`)
-    .all(r.startDay, r.endDay || '9999').map(row => {
+      FROM ledger l LEFT JOIN names t ON t.id=l.tier LEFT JOIN names m ON m.id=l.model WHERE l.day>=? AND l.day<? AND l.day<=?`)
+    .all(r.startDay, r.endDay || '9999', r.today || '9999').map(row => {
       const findings = [row.l1_count, row.l2_count, row.l3_count].reduce((a, b) => a + (b || 0), 0);
       const layers = [['L1', row.l1_raw, row.l1_count], ['L2', row.l2_raw, row.l2_count], ['L3', row.l3_raw, row.l3_count]];
       const dirty = layers.find(([, raw, count]) => !layerClean(raw, count));
       const fails = row.fail_rounds ?? layers.reduce((a, [, raw]) => a + failRounds(raw), 0);
-      const clean = !dirty && fails === 0;
+      const clean = firstPassClean(row, fails);
       return { id: row.id, day: row.day, tier: tierOf(row.tier), layer2: row.layer2 === 1, model: aliasModel(row.model) || 'unknown',
         clean, layer: dirty ? dirty[0] : clean ? null : 'L2', fail: fails > 0, failRounds: fails,
         stop: row.stop === null || row.stop === undefined ? stopFlag(row.note) === 1 : row.stop === 1,
@@ -422,7 +431,7 @@ function overview(db, r) {
     // H8a: usage card + routing card (Overview top).
     usage: usage(db, r.now, fc),
     route: routeAdvice(routeInputOf(liveQuotas(db, r.now))),
-    ontologyStatus,
+    ontologyStatus, metrics: ONTOLOGY.metrics,
     anomaly: flags,
     ...doThisNow(db, r.now),
     attention: attention(db, r, flags, fc, ledger),
@@ -699,6 +708,50 @@ const DEFAULT_LAYER3 = { K0: 'Fable via /model', K1: 'Opus supervisor (Fable onl
 const DEFAULT_ALERTS = { quotaPace: 1.3, quotaUsed: 85, handoffUsed: 80, commitPct: 90, diskFreePct: 10, folderDays: 14, cleanDrop: 15, cleanMinTasks: 3,
   vhdxGB: 80, staleSecs: 600, threadTokens: 50e6, threadActiveHours: 48 };
 
+// Copied from the repository ontology; older live ontologies predate defect categories.
+const DEFAULT_DEFECT_CATEGORIES = [
+  { id: 'contradiction', label: 'Contradictory requirements',
+    countermeasure: 'Resolve conflicts between criteria, constraints, fixtures, and tests, and give each term one meaning.' },
+  { id: 'sandbox-validate', label: 'Sandbox validation',
+    countermeasure: 'Provide validation commands that run in the worker sandbox or name the steps the supervisor must run on the host.' },
+  { id: 'salvage-resume', label: 'Salvage and fresh sessions',
+    countermeasure: 'Include stop rules and a salvage note, and request a fresh session after a sub-agent thread.' },
+  { id: 'ui-widths', label: 'UI width coverage',
+    countermeasure: 'Test UI widths of 320, 400, 640, 1024, and 1440 pixels with no horizontal overflow or clipped text.' },
+  { id: 'docs-style', label: 'Documentation style',
+    countermeasure: 'Require STE short sentences, active voice, and no non-STE words, and name the STE check.' },
+  { id: 'encoding', label: 'File encoding',
+    countermeasure: 'Specify UTF-8 without BOM and LF or the repository line ending when changing non-ASCII text.' },
+  { id: 'docs-sync', label: 'Documentation synchronization',
+    countermeasure: 'Include documents that quote counts, file names, or rules in FILES and update them with the code.' },
+  { id: 'source-of-truth', label: 'Source of truth',
+    countermeasure: 'Read each value from its source of truth and name every fallback instead of using silent defaults.' },
+  { id: 'concurrency', label: 'Concurrency and ordering',
+    countermeasure: 'State concurrency, cache, and ordering behaviour and require a test for each.' },
+  { id: 'fixture-secret', label: 'Fixture secret gates',
+    countermeasure: 'Use dummy fixture values shorter than the secret-gate pattern and omit console.log.' },
+  { id: 'real-path', label: 'Real execution path',
+    countermeasure: 'Include at least one criterion that runs the real stack, real data, or a real run beyond mocks or holds.' },
+  { id: 'formatter-lint', label: 'Formatter and static checks',
+    countermeasure: 'Run the repository formatter, lint, and typecheck on changed files in VALIDATE.' },
+  { id: 'env-tools', label: 'Environment and tools',
+    countermeasure: 'Name every environment variable and tool required by the build and run steps.' },
+  { id: 'scope-creep', label: 'Scope control',
+    countermeasure: 'Bound the work with FILES and NON-GOALS and forbid rewriting lines outside the change.' },
+  { id: 'ps51-traps', label: 'PowerShell 5.1 traps',
+    countermeasure: 'Address PowerShell 5.1 array unrolling, paths with spaces, and $PSScriptRoot parameter defaults, and validate syntax with powershell -NoProfile -File ~/.claude/bin/ps-parse-check.ps1 <file...> instead of an inline parser call.' },
+  { id: 'missing-criterion', label: 'Missing success criterion',
+    countermeasure: 'Write one testable SUCCESS CRITERIA line for every behaviour the change must keep or add.' },
+  { id: 'unverified-claim', label: 'Unverified completion claim',
+    countermeasure: 'Ask the worker to paste the command output for every claim of done.' },
+  { id: 'logic-bug', label: 'Logic defect',
+    countermeasure: 'Give a worked example with input and expected output for each non-trivial rule.' },
+  { id: 'other', label: 'Other defect',
+    countermeasure: 'Describe the defect in the finding title.' }
+];
+const DEFAULT_FIRST_PASS = { label: 'Clean first pass',
+  definition: 'A ledger task with fail_rounds = 0 and L1 + L2 + L3 findings = 0.' };
+
 /* Intent: load one complete ontology per process; a bad explicit/live file must not mix defaults with input.
  * Status: complete. Next: restart after ontology edits. Blockers: none. Confidence: isolated loader tests. */
 function loadOntology() {
@@ -735,12 +788,21 @@ function loadOntology() {
       const value = thresholds[key] - (subtract ? 1 : 0);
       return key.includes('Pace') ? (Number.isInteger(value) ? value.toFixed(1) : String(value)) : value.toFixed(0);
     });
-    return { thresholds, work: routing.workTypes, matrix, layer3: routing.layer3, stopText: routing.stopText, banner, alerts,
+    const defectCategories = o.defectCategories ?? DEFAULT_DEFECT_CATEGORIES;
+    need(Array.isArray(defectCategories) && defectCategories.length > 0
+      && defectCategories.every(c => c && string(c.id) && string(c.label) && string(c.countermeasure))
+      && new Set(defectCategories.map(c => c.id)).size === defectCategories.length
+      && defectCategories.some(c => c.id === 'other'), 'defectCategories');
+    return { thresholds, work: routing.workTypes, matrix, layer3: routing.layer3, stopText: routing.stopText, banner, alerts, defectCategories,
+      metrics: { first_pass: {
+        label: string(o.metrics?.first_pass?.label) ? o.metrics.first_pass.label : DEFAULT_FIRST_PASS.label,
+        definition: string(o.metrics?.first_pass?.definition) ? o.metrics.first_pass.definition : DEFAULT_FIRST_PASS.definition } },
       status: { state: 'loaded', version: o.version, error: null } };
   } catch (e) {
     return { thresholds: DEFAULT_ROUTE, work: DEFAULT_WORK, matrix: DEFAULT_MATRIX, layer3: DEFAULT_LAYER3,
       stopText: 'No new packets; report to Line', banner: 'Claude 5-hour >= 80%: finish the current check, update the handoff, pause Claude work until the window resets',
-      alerts: DEFAULT_ALERTS, status: { state: 'fallback', version: null, error: e.message } };
+      alerts: DEFAULT_ALERTS, defectCategories: DEFAULT_DEFECT_CATEGORIES, metrics: { first_pass: DEFAULT_FIRST_PASS },
+      status: { state: 'fallback', version: null, error: e.message } };
   }
 }
 const ONTOLOGY = loadOntology(), ontologyStatus = ONTOLOGY.status;
@@ -1552,12 +1614,12 @@ function outcomeLinks(db) {
     ORDER BY x.started, x.run_id, l.day, l.id`).all();
 }
 
-/* Intent: distinguish measured outcomes from missing counts and unknown FAIL rounds.
+/* Intent: use certified first-pass results over all tasks; other measures retain known-value denominators.
  * Status: ready. Next: none. Blockers: none. Confidence: denominator fixtures. */
 function outcomeStats(rows) {
   const known = rows.filter(x => x.recordedFailRounds !== null), tasks = rows.length;
   const defects = rows.filter(x => x.l2 !== null && x.l3 !== null);
-  return { tasks, firstPassN: known.length, firstPassPct: pctOf(known.filter(x => x.recordedFailRounds === 0).length, known.length),
+  return { tasks, firstPassN: tasks, firstPassPct: cleanPct(rows),
     meanFailRounds: known.length ? round2(sumBy(known, x => x.recordedFailRounds) / known.length) : null,
     stopPct: pctOf(rows.filter(x => x.stop).length, tasks),
     defectsAfterWorker: defects.length ? round2(sumBy(defects, x => x.l2 + x.l3) / defects.length) : null,
@@ -1788,7 +1850,106 @@ function pickedDetail(db, r, row, { tok, dailyRuns, runRows, sessionKey, ledger 
     tops: { skills: topOf(skills), tools: topOf(tools), subagents: topOf(agents) }, last };
 }
 
+/* Intent: count normalized finding categories without losing per-layer totals.
+ * Status: shared by range, week and worker summaries. Next: none. Blockers: none. Confidence: exact fixture totals. */
+function findingCategories(rows, catalog) {
+  const counts = new Map();
+  for (const row of rows) {
+    if (!counts.has(row.category)) {
+      const { label, countermeasure } = catalog.get(row.category);
+      counts.set(row.category, { category: row.category, label, countermeasure, count: 0, byLayer: { 1: 0, 2: 0, 3: 0 } });
+    }
+    const count = counts.get(row.category);
+    count.count++; count.byLayer[row.layer]++;
+  }
+  return [...counts.values()].sort((a, b) => b.count - a.count || a.category.localeCompare(b.category));
+}
+
+/* Intent: show repeat defects by category/layer and attributed worker in the selected range.
+ * Status: unknown raw ids map to other; weekly top five use eight Monday weeks independently.
+ * Next: host layout checks. Blockers: none. Confidence: fixture boundaries, rollups and run joins. */
+function workFindings(db, r) {
+  const catalog = new Map(ONTOLOGY.defectCategories.map(c => [c.id, c]));
+  const weeks = [...new Set(dayList(56, r.now).list.map(weekOf))].slice(-8);
+  const [y, m, d] = weeks[0].split('-').map(Number);
+  const weekStart = new Date(y, m - 1, d).getTime() / 1000;
+  const rows = hasTable(db, 'findings') ? db.prepare(`SELECT f.ts, f.category, f.layer, m.name model
+    FROM findings f LEFT JOIN runs r ON r.run_id=f.run_id LEFT JOIN names m ON m.id=r.model
+    WHERE f.ts>=? AND f.ts<=?`).all(Math.min(r.startTs, weekStart), r.now).map(row => ({ ...row,
+    category: catalog.has(row.category) ? row.category : 'other', model: aliasModel(row.model) || 'unknown',
+    week: weekOf(day(row.ts)) })) : [];
+  const selected = rows.filter(row => row.ts >= r.startTs), ranked = findingCategories(selected, catalog);
+  const top = ranked.filter(c => c.category !== 'other').slice(0, 10);
+  const kept = new Set(top.map(c => c.category)), rest = ranked.filter(c => !kept.has(c.category));
+  if (rest.length) {
+    const { label, countermeasure } = catalog.get('other');
+    top.push({ category: 'other', label, countermeasure, count: sumBy(rest, c => c.count),
+      byLayer: Object.fromEntries([1, 2, 3].map(layer => [layer, sumBy(rest, c => c.byLayer[layer])])) });
+  }
+  const weekly = rows.filter(row => row.ts >= weekStart), byWeek = groupBy(weekly, 'week');
+  const weeklyTop = findingCategories(weekly, catalog).slice(0, 5);
+  return { total: selected.length,
+    byCategory: top.sort((a, b) => b.count - a.count || a.category.localeCompare(b.category)),
+    byWeek: weeks.map(week => {
+      const counts = new Map(findingCategories(byWeek.get(week) || [], catalog).map(c => [c.category, c.count]));
+      return { week, categories: weeklyTop.map(({ category, label }) => ({ category, label, count: counts.get(category) || 0 })) };
+    }),
+    byWorker: [...groupBy(selected, 'model')].sort(([a], [b]) => a.localeCompare(b))
+      .map(([model, findings]) => ({ model, categories: findingCategories(findings, catalog).slice(0, 3)
+        .map(({ category, label, count }) => ({ category, label, count })) })) };
+}
+
 // Page ids = /api/<id>. delegation() is internal (workers().delegation): /api/delegation is a 404.
-module.exports = { range, pages: { overview, supervisor, workers, cost, productivity, harness, gates, system, trace, models }, modelCompare, abPairs, gates, compareTier, ledgerKey, tierOf, layerClean, median,
+/* Intent: compose Work graphics from existing calendar, capability and ledger queries.
+ * Status: daily clean/findings counts; rolling seven days include six days before the range.
+ * Next: host screenshots. Blockers: none. Confidence: hub-slim boundary/count fixtures. */
+function work(db, r) {
+  const w = workers(db, r), g = gates(db, r);
+  const history = dayList(r.list.length + 6, r.now);
+  const rows = ledgerRows(db, { startDay: history.startDay }).filter(x => x.day <= r.today);
+  const selected = rows.filter(x => x.day >= r.startDay), byDay = groupBy(rows, 'day');
+  const axes = capability(db, r, tokensByDay(db, r), selected);
+  const counts = history.list.map(day => {
+    const tasks = byDay.get(day) || [], clean = tasks.filter(x => x.clean).length;
+    return { tasks: tasks.length, clean, hadFindings: tasks.length - clean };
+  });
+  return {
+    metrics: ONTOLOGY.metrics,
+    findings: workFindings(db, r),
+    calendar: yearCalendar(db, r.now), radar: { axes, notes: capabilityNotes(axes) },
+    daily: { days: r.list, clean: counts.slice(6).map(x => x.clean), hadFindings: counts.slice(6).map(x => x.hadFindings),
+      pass7: r.list.map((_, i) => { const window = counts.slice(i, i + 7); return pctOf(sumBy(window, x => x.clean), sumBy(window, x => x.tasks)); }) },
+    tiers: g.tiers.filter(x => x.tasks > 0).map(({ tier, tasks, firstPassPct, layer2Pct, defects }) => {
+      const clean = selected.filter(x => x.tier === tier && x.clean).length;
+      return { tier, tasks, clean, hadFindings: tasks - clean, firstPassPct, layer2Pct, defects };
+    }),
+    models: w.models.map(({ model, runs, exit0, finished, medianSecs }) => ({ model, runs, exit0, finished,
+      exit0Pct: pctOf(exit0, finished), medianSecs, cleanPct: w.byModel.find(x => x.model === model)?.cleanPct ?? null })),
+    weeks: g.weeks.map(({ week, tasks, firstPassPct }) => ({ week, tasks, firstPassPct })),
+    violations: g.violations.slice(0, 5)
+  };
+}
+
+/* Intent: compose Machine graphics; retain daily RAM, drive shares and top working sets.
+ * Status: compact payload, alerts attached by HTTP server. Next: host screenshots.
+ * Blockers: none. Confidence: hub-slim fixtures; legacy system/harness endpoints unchanged. */
+function machine(db, r) {
+  const s = system(db, r), h = harness(db, r);
+  const lowest = s.sample?.drives.filter(x => x.freePct !== null).sort((a, b) => a.freePct - b.freePct)[0];
+  return {
+    sample: s.sample ? { ts: s.sample.ts, ram: { freePct: s.sample.ram.freePct, commitPct: s.sample.ram.commitPct },
+      lowestDrive: lowest ? { d: lowest.d, freePct: lowest.freePct } : null,
+      drives: s.sample.drives.map(({ d, freePct, usedPct }) => ({ d, freePct, usedPct: Number.isFinite(usedPct) ? usedPct : null })) } : null,
+    stale: s.stale, daily: s.daily,
+    processes: [...(s.sample?.top || [])].sort((a, b) => b.mb - a.mb).slice(0, 6),
+    hookErrors: sumBy(h.hookErrors, x => x), hookTimeouts: sumBy(h.hookTimeouts, x => x),
+    hooks: s.hooks.filter(x => x.p95_ms !== null).sort((a, b) => (b.timeoutMs ? b.p95_ms / b.timeoutMs : -1) - (a.timeoutMs ? a.p95_ms / a.timeoutMs : -1))
+      .slice(0, 6).map(({ script, p95_ms, timeoutMs }) => ({ script, p95_ms, timeoutMs })),
+    folders: [...s.folders].sort((a, b) => b.bytes - a.bytes).slice(0, 6)
+      .map(({ label, drive, bytes, growthPerDay }) => ({ label, drive, bytes, growthPerDay }))
+  };
+}
+
+module.exports = { range, pages: { overview, supervisor, workers, cost, productivity, harness, gates, system, trace, models, work, machine }, modelCompare, abPairs, gates, compareTier, ledgerKey, tierOf, layerClean, firstPassClean, median,
   anomaly, fitLine, forecast, weekOf, exactMedian, TASK_TYPES, classifyTask, capabilityNotes, taskNotes, sideOf, failRounds,
   ledgerRows, runTokens, hookRank, quota, pace, paceHistory, burndown, actionBox, FIRES, RULES, bigThreads, strayAgents, quotaName, latestSample, folders, routeAdvice, routeInputOf, usage, evaluateRules, liveQuotas, ontologyStatus };

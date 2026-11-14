@@ -122,6 +122,7 @@ function discover(config, failed = (_file, error) => { throw error; }) {
   add(path.join(config.state, 'dispatch-trail.log'), 'dispatch');
   add(path.join(config.state, 'review-ledger.log'), 'ledger');
   add(path.join(config.state, 'reviews.jsonl'), 'review');
+  add(path.join(config.state, 'findings.jsonl'), 'finding');
   add(path.join(config.status, 'anthropic-usage.json'), 'status');
   add(path.join(config.claude, 'settings.json'), 'settings');
   if (config.system) {

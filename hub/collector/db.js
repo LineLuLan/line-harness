@@ -1,5 +1,5 @@
 /* Intent: own SQLite access, atomic ingestion, normalization and retained receipts.
- * Status: schema v10 (field-3 evidence and review modes; targeted log replay), v9 (packet SHA, targeted run replay), v8 (system sampler tables, ledger_runs, spec_bytes, window_secs, hook_limits; no full replay), v7 (see the addColumn steps below), SQLite leases and transactional replay migration.
+ * Status: schema v11 (typed findings), v10 (field-3 evidence and review modes; targeted log replay), v9 (packet SHA, targeted run replay), v8 (system sampler tables, ledger_runs, spec_bytes, window_secs, hook_limits; no full replay), v7 (see the addColumn steps below), SQLite leases and transactional replay migration.
  * Migration: v1/v2 automatically rebuild reviews/ledger/dispatches from source logs.
  * Other facts are kept; all cursors rewind once because old cursors lack source kinds.
  * Missing source logs cannot be rebuilt; counts refill across budgeted runs.
@@ -11,7 +11,7 @@ const { DatabaseSync } = require('node:sqlite');
 const fs = require('node:fs');
 const path = require('node:path');
 const { hash, name } = require('./values');
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 11;
 // Read-only peek at the stored schema version (null = no DB or no meta yet). Never migrates.
 function storedVersion(file) {
   if (!fs.existsSync(file)) return null;
@@ -77,12 +77,25 @@ class Store {
     try {
       const exists = this.db.prepare("SELECT 1 FROM sqlite_master WHERE name='meta'").get();
       const version = exists && this.db.prepare("SELECT value FROM meta WHERE key='schema_version'").get();
-      if (version && !['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'].includes(version.value)) throw new Error('Unsupported schema version');
+      if (version && !['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'].includes(version.value)) throw new Error('Unsupported schema version');
       this.begin();
       this.db.exec(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
       const addColumn = (table, column, type) => {
         if (!this.all(`PRAGMA table_info(${table})`).some(c => c.name === column)) this.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
       };
+      // Intent: retain only typed finding metadata and short titles. Status: v11, additive migration.
+      // Next: category reporting. Blockers: none. Confidence: v11 fixture migration and ingest tests.
+      this.exec(`CREATE TABLE IF NOT EXISTS findings (
+        id TEXT PRIMARY KEY, ts INTEGER, source TEXT,
+        kind TEXT NOT NULL DEFAULT 'finding' CHECK (kind IN ('finding','format-violation')),
+        layer INTEGER NOT NULL CHECK (layer IN (1,2,3)),
+        severity TEXT CHECK (severity IN ('P0','P1','P2','P3')),
+        category TEXT, title TEXT CHECK (length(title)<=200), criterion TEXT, reviewer TEXT,
+        project INTEGER, spec_sha TEXT, run_id TEXT,
+        CHECK (severity IS NOT NULL OR kind='format-violation')
+      ) STRICT;
+      CREATE INDEX IF NOT EXISTS findings_ts ON findings(ts);
+      CREATE INDEX IF NOT EXISTS findings_category ON findings(category);`);
       // v4: committed-prefix fingerprint. NULL for old cursors = trusted until the next commit.
       addColumn('ingest_state', 'head', 'TEXT');
       // v5: session branches. Projects become git repos, so every source is replayed once:

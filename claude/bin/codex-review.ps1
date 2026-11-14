@@ -65,6 +65,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'codex-acc-lib.ps1')
 . (Join-Path $PSScriptRoot 'codex-sandbox-lib.ps1')
 . (Join-Path $PSScriptRoot 'ram-preflight.ps1')
+. (Join-Path $PSScriptRoot 'review-findings-lib.ps1')
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 # Decode git/npm stdout as UTF-8: with the console code page, Vietnamese diff lines reached the reviewer as
 # mojibake and were reported as broken fixtures (WP2 review 2026-10-25).
@@ -91,11 +92,13 @@ function Write-ReviewLog {
   # Intent: record review outcomes for Line without retaining diff/prompt or diagnostic echoes.
   # Status: mode and coverage are explicit; gates-only has no model attribution. Next: install. Blockers: none.
   # Confidence: offline tests cover verdicts, findings, gate status, and unwritable destinations.
+  $reviewUtc = [DateTime]::UtcNow.ToString('o')
+  $path = $null
   try {
     $path = if ($env:CODEX_REVIEW_LOG) { [IO.Path]::GetFullPath($env:CODEX_REVIEW_LOG) } else { Join-Path $env:USERPROFILE '.claude\state\reviews.jsonl' }
-    $findings = @((Get-ReviewFindings -Text $reviewAnswer).Findings)
+    $findings = @((Get-ReviewFindings -Text $reviewAnswer).Findings | Select-Object severity, location, title)
     $entry = [ordered]@{
-      utc = [DateTime]::UtcNow.ToString('o'); dir = $Dir; specFile = $SpecFile
+      utc = $reviewUtc; dir = $Dir; specFile = $SpecFile
       model = $(if ($SkipModel) { $null } else { $Model }); effort = $(if ($SkipModel) { $null } else { $Effort }); gates = $gateResults
       mode = $(if ($SkipModel) { 'gates-only' } else { 'model' })
       verdict = $(if ($exitCode -eq 0) { 'PASS' } elseif ($exitCode -eq 1) { 'FAIL' } else { 'UNKNOWN' })
@@ -110,51 +113,50 @@ function Write-ReviewLog {
     # Next: supervisor live validation. Blockers: none. Confidence: stderr failure fixture.
     [Console]::Error.WriteLine('codex-review: review log failed: ' + $_.Exception.GetType().FullName)
   }
+  if ($path) { Write-ReviewFindingsLog -Utc $reviewUtc -ReviewLogPath $path }
 }
-function Get-ReviewFindings {
-  param([AllowEmptyString()][string]$Text)
-  # Intent: count finding blocks, excluding zero summaries and repeated severity metadata.
-  # Status: retains live severity/location/title fields. Next: supervisor review.
-  # Blockers: none. Confidence: format, block and live logger fixtures.
-  $counts = [ordered]@{ P0=0; P1=0; P2=0; P3=0 }
-  $findings = New-Object 'Collections.Generic.List[object]'
-  $active = $null
-  $pattern = '(?i)\[(?<severity>P[0-3])\]|\b(?<severity>P[0-3]):|\*\*(?<severity>P[0-3])\*\*|\bSeverity:\s*(?<severity>P[0-3])\b|(?:^|\s)-\s*(?<severity>P[0-3])\s*-|\b(?<severity>P[0-3])\s*\([^)]+\)|^\s*\d+[.)]\s+(?<severity>P[0-3])\s*-|\|\s*(?<severity>P[0-3])\s*\||^\s*#{1,6}\s+(?<severity>P[0-3])\b'
-  foreach ($line in ($Text -split '\r?\n')) {
-    # Only headers introduce findings; severity references in prose and summaries do not.
-    if ($line -notmatch '(?i)^\s*(?:(?:[-*]|\d+[.)]|#{1,6})\s+)*(?:\|\s*)?(?:\[P[0-3]\]|\*\*P[0-3]\*\*|P[0-3]\b|(?:\*\*)?Severity:)') {
-      if ($line -match '^\s*#{1,6}\s+|^\s*\d+[.)]\s+') { $active = $null }
-      continue
+function Write-ReviewFindingsLog {
+  param([string]$Utc, [string]$ReviewLogPath)
+  # Intent: retain typed evidence for Line without changing review outcomes or copying gate diagnostics.
+  # Status: independent best-effort append. Next: Hub ingestion. Blockers: none. Confidence: offline fixtures.
+  try {
+    $findings = @(); $violationTitle = $null
+    if (-not $SkipModel -and -not [string]::IsNullOrWhiteSpace($reviewAnswer)) {
+      $structured = Get-StructuredFindings -Text $reviewAnswer
+      if ($structured.Status -eq 'ok') { $findings = @($structured.Findings) }
+      if ($structured.Status -eq 'missing') { $violationTitle = 'Review findings block missing' }
+      elseif ($structured.Status -eq 'invalid') { $violationTitle = 'Review findings block is not valid JSON' }
+      elseif ($structured.Violations -gt 0) { $violationTitle = "$($structured.Violations) findings failed the schema" }
     }
-    $labels = @(
-      foreach ($match in [regex]::Matches($line, $pattern)) {
-        $label = $match.Groups['severity']
-        $before = $line.Substring(0, $label.Index)
-        $after = $line.Substring($label.Index + $label.Length) -replace '^[\s\]\[()*_:|-]+', ''
-        if ($before -match '(?i)\bno\s*[\[*]*$' -or $after -match '(?i)^(?:none|zero|0)\b|^no\s+(?:findings?|issues?)\b') { continue }
-        $label.Value.ToUpperInvariant()
+    $failedGates = @($gateResults.Keys | Where-Object { $gateResults[$_] -eq 'FAIL' })
+    if (-not $findings.Count -and -not $failedGates.Count -and -not $violationTitle) { return }
+    $specSha = Get-FindingSpecSha -SpecFile $SpecFile
+    $runId = Get-FindingRunId -SpecSha $specSha -Dir $Dir
+    $index = 0
+    $facts = @(
+      foreach ($finding in $findings) {
+        New-FindingFact -Utc $Utc -IdSeed ([string]$index) -Source 'codex-review' -Layer 2 `
+          -Severity $finding.severity -Category $finding.category -Title $finding.title -Location $finding.location `
+          -Criterion $finding.criterion -Reviewer $Model -Dir $Dir `
+          -SpecFile $SpecFile -SpecSha $specSha -RunId $runId -Quote $null
+        $index++
+      }
+      if ($violationTitle) {
+        New-FindingFact -Utc $Utc -IdSeed 'violation' -Source 'codex-review' -Layer 2 `
+          -Category 'other' -Title $violationTitle -Reviewer $Model -Dir $Dir `
+          -SpecFile $SpecFile -SpecSha $specSha -RunId $runId -Kind 'format-violation'
+      }
+      foreach ($gate in $failedGates) {
+        $category = if ($gate -in @('typecheck','lint')) { 'formatter-lint' } else { 'fixture-secret' }
+        New-FindingFact -Utc $Utc -IdSeed ([string]$index) -Source 'codex-review' -Layer 1 `
+          -Severity 'P2' -Category $category -Title "$gate gate failed" -Dir $Dir -SpecFile $SpecFile -SpecSha $specSha -RunId $runId
+        $index++
       }
     )
-    if (-not $labels.Count) {
-      if ($line -match '^\s*#{1,6}\s+|^\s*\d+[.)]\s+') { $active = $null }
-      continue
-    }
-    $severity = $labels | Sort-Object | Select-Object -First 1
-    # A standalone Severity field belongs to the current block, even after body/blank lines.
-    if ($null -ne $active -and $line -match '(?i)^\s*(?:[-*]\s+)?(?:\*\*)?Severity:\s*(?:\*\*)?\[?P[0-3]\]?(?:\*\*)?\s*$') {
-      if ($severity -clt $active.severity) { $active.severity = $severity }
-      continue
-    }
-    $title = [regex]::Replace($line, $pattern, '').Trim(' ', '-', '*', '#', '|', ':')
-    $location = ''
-    if ($title -match '^(?<title>.*?)\s+-\s+(?<location>.+:\d+(?::\d+)?)\s*$') {
-      $location = $Matches['location'].Trim(); $title = $Matches['title'].Trim()
-    } elseif ($title -match '(?<location>(?:[A-Za-z]:)?[^\s|]+:\d+(?::\d+)?)') { $location = $Matches['location'] }
-    $active = [pscustomobject]@{ severity=$severity; location=$location; title=$title }
-    $findings.Add($active)
+    Add-FindingFacts -Path (Join-Path (Split-Path -Parent $ReviewLogPath) 'findings.jsonl') -Facts $facts
+  } catch {
+    [Console]::Error.WriteLine('codex-review: findings log failed: ' + $_.Exception.GetType().FullName)
   }
-  foreach ($finding in $findings) { $counts[$finding.severity]++ }
-  [pscustomobject]@{ Counts=$counts; Findings=@($findings.ToArray()) }
 }
 function Invoke-Git([string[]]$Arguments, [int[]]$AllowedCodes = @(0)) {
   # Native stderr is kept out of the diff; Git errors must not look like no changes.
@@ -557,6 +559,7 @@ function Invoke-Main {
   }
   if ([string]::IsNullOrWhiteSpace($criteria)) { $criteria = "review for correctness against the change's evident intent" }
   $template = 'You are an independent reviewer in a fresh session. You see only this diff and the criteria below. Report ONLY gaps that affect correctness or the stated criteria; style is optional and must be labeled P3. For each finding give severity P0 (blocks ship: wrong result, data loss, security), P1 (must fix before merge), P2 (should fix), or P3 (nit), file:line, and a one-line reason. Before the VERDICT line, write a block that starts with the line `CRITERIA:` followed by one line per SUCCESS CRITERIA item, using its top-level number as the id (sub-items are not separate ids): `C1: PASS|FAIL|UNKNOWN - <one line reason>`. Use UNKNOWN when the diff does not let you decide. End with exactly one line: `VERDICT: PASS` or `VERDICT: FAIL`. FAIL when at least one P0 or P1 finding exists.'
+  $template += ' After the VERDICT line, append one fenced block ```findings containing a JSON array of {severity, category, title, location, criterion}; use [] when there are no findings. Categories: ' + ((Get-ReviewDefectCategories) -join ', ') + '.'
   # Intent: retain binding criteria plus amendments that revise them in the full packet.
   # Status: both packet and diff share a collision-safe fence. Next: install. Blockers: none.
   # Confidence: captured stdin includes amendments and a packet containing seven backticks.

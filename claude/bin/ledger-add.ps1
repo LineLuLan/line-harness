@@ -6,6 +6,7 @@ param(
   [AllowEmptyString()][string]$L2 = '',
   [Parameter(Mandatory=$true)][AllowEmptyString()][string]$L3,
   [Parameter(Mandatory=$true)][AllowEmptyString()][string]$Note,
+  [string]$Waiver,
   [Parameter(Mandatory=$true)][string]$Worker,
   [Parameter(Mandatory=$true)][ValidateSet('ui','collector','review','research','docs','config','other')][string]$Type,
   [Parameter(Mandatory=$true)][ValidateRange(0,2147483647)][int]$FailRounds,
@@ -20,8 +21,19 @@ if ($Findings -cnotmatch '\AL1:[0-9]+,L2:[0-9]+,L3:[0-9]+\z') { throw 'Findings 
 $Tier = @('Skip','Standard-A','Standard-B','Important','Critical','Exploration') | Where-Object { $_ -ieq $Tier } | Select-Object -First 1
 $Layer2 = $Layer2.ToLowerInvariant()
 $Type = $Type.ToLowerInvariant()
-foreach ($value in @($L1,$L2,$L3,$Note,$Worker)) {
-  if ($value -match '\A-(Tier|Layer2|L1|L2|L3|Note|Worker|Type|FailRounds|Findings|RunIds|SpecFile|RunsRoot|Path)\z') { throw "Value '$value' is a parameter name: an empty argument was dropped. Omit -L2 instead of passing ''." }
+foreach ($value in @($L1,$L2,$L3,$Note,$Worker,$Waiver)) {
+  if ($value -match '\A-(Tier|Layer2|L1|L2|L3|Note|Waiver|Worker|Type|FailRounds|Findings|RunIds|SpecFile|RunsRoot|Path)\z') { throw "Value '$value' is a parameter name: an empty argument was dropped. Omit -L2 instead of passing ''." }
+}
+# Intent: enforce Line's layer-2 requirement before any ledger write. Status: enforced with recorded waivers.
+# Next: supervisor installation. Blockers: none. Confidence: rejection and append regressions.
+if ($PSBoundParameters.ContainsKey('Waiver')) {
+  if ([string]::IsNullOrWhiteSpace($Waiver) -or $Waiver.Length -gt 120 -or $Waiver -match '[|\r\n\u2028\u2029\x0B\x0C]') {
+    throw 'Waiver must be non-empty, at most 120 characters, and contain no pipes or line separators.'
+  }
+}
+if ($Tier -in @('Important', 'Critical') -and $Layer2 -eq 'no') {
+  if (-not $Waiver) { throw "Layer 2 is mandatory at $Tier; pass -Waiver '<reason>' (for example 'STOP before code')" }
+  $Note += " [waiver: $Waiver]"
 }
 # PS 5.1 drops '' arguments under powershell -File, so -L2 is optional: layer2=no means 'skipped'.
 if (-not $L2) {
