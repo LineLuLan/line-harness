@@ -5,6 +5,7 @@
 [CmdletBinding()]
 param([switch]$OfflineOnly)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'fixtures\dispatch-packet.ps1')
 $root = Split-Path -Parent $PSScriptRoot
 $helper = Join-Path $root 'codex-review.ps1'
 $fixtureRoot = Join-Path ([IO.Path]::GetFullPath($env:TEMP)) ('codex-review-fixture-' + [guid]::NewGuid().ToString('N'))
@@ -19,13 +20,53 @@ function Write-Fixture([string]$Text) {
   [IO.File]::WriteAllText((Join-Path $repo 'a.js'), $Text, $utf8)
 }
 function Invoke-Review([string]$Name, [string[]]$ReviewArgs) {
-  $output = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $helper @ReviewArgs 2>&1)
-  $code = $LASTEXITCODE
+  if ($env:CODEX_DO_BIN -ne $originalBin) { $ReviewArgs = @('-NoRamCheck') + $ReviewArgs }
+  if ($ReviewArgs -notcontains '-SpecFile' -and $ReviewArgs -notcontains '-Prompt') { $ReviewArgs += @('-SpecFile', $defaultPacket) }
+  # Intent: one compact log per invocation, without prompt/diff leakage. Status: regression assertions.
+  # Next: supervisor review. Blockers: none. Confidence: real JSONL reads after every child exit.
+  $before = if (Test-Path -LiteralPath $env:CODEX_REVIEW_LOG -PathType Leaf) { [IO.File]::ReadAllText($env:CODEX_REVIEW_LOG) } else { '' }
+  # Expected native stderr (log failure) is evidence, not a terminating test exception.
+  $savedPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    $output = @(& powershell.exe -NoProfile -File $helper @ReviewArgs 2>&1)
+    $code = $LASTEXITCODE
+  } finally { $ErrorActionPreference = $savedPreference }
+  if ($Name -ne 'log-unwritable') {
+    $after = [IO.File]::ReadAllText($env:CODEX_REVIEW_LOG)
+    Assert-True ($after.StartsWith($before)) "$Name preserves existing review log"
+    $newLines = @($after.Substring($before.Length) -split "`n" | Where-Object { $_.Trim() })
+    Assert-True ($newLines.Count -eq 1) "$Name appends exactly one log line"
+    $entry = $newLines[0] | ConvertFrom-Json
+    $expectedVerdict = if ($code -eq 0) { 'PASS' } elseif ($code -eq 1) { 'FAIL' } else { 'UNKNOWN' }
+    $expectedFindings = if ($Name -eq 'mock-fail') { 4 } elseif ($Name -in @('subtraction', 'fixed')) { $null } else { 0 }
+    Assert-True ($entry.verdict -ceq $expectedVerdict -and ($null -eq $expectedFindings -or @($entry.findings).Count -eq $expectedFindings)) "$Name logs verdict and findings count"
+    # Intent: keep model attribution honest for Line. Status: regression checks.
+    # Next: supervisor live checks. Blockers: none. Confidence: JSONL after actual child exits.
+    $gatesOnly = $ReviewArgs -contains '-SkipModel'
+    $expectedMode = if ($gatesOnly) { 'gates-only' } else { 'model' }
+    $attribution = if ($gatesOnly) { $null -eq $entry.model -and $null -eq $entry.effort } else { $entry.model -and $entry.effort }
+    Assert-True ($entry.utc -and $entry.dir -and $attribution -and $entry.mode -eq $expectedMode -and $null -ne $entry.gates) "$Name logs honest mode and metadata"
+    if ($gatesOnly -or $Name -eq 'empty' -or $Name -eq 'prompt-criteria') { Assert-True ($entry.criteria -eq 'n/a') "$Name has no criteria review" }
+    if ($Name -eq 'mock-pass') { Assert-True ($entry.criteria -eq 'none') 'missing CRITERIA logs none' }
+    if ($Name -eq 'criteria-complete') { Assert-True ($entry.criteria -eq 'complete') 'all expected PASS logs complete' }
+    if ($Name -in @('criteria-unknown','criteria-missing','criteria-duplicate','criteria-fail')) {
+      Assert-True ($entry.criteria -eq 'incomplete') "$Name logs incomplete coverage"
+    }
+    Assert-True ($newLines[0] -notmatch 'A harmless comment|excluded-marker|FULL PACKET|diff --git') "$Name omits prompt and diff"
+    if ($Name -eq 'mock-fail') {
+      Assert-True ($entry.findings[0].severity -ceq 'P1' -and $entry.findings[0].location -ceq 'a.js:2' -and $entry.findings[0].title -ceq 'mock finding') 'finding fields parsed'
+    }
+    if ($Name -eq 'mock-pass') {
+      Assert-True ($entry.specFile -ceq $packet -and $entry.dir -ceq $repo -and $entry.model -ceq 'gpt-6-astra' -and $entry.effort -ceq 'high' -and $entry.gates.secrets -ceq 'PASS' -and $entry.gates.lint -ceq 'SKIP') 'log records packet and gate statuses'
+    }
+    if ($Name -eq 'gates') { Assert-True ($entry.gates.secrets -ceq 'FAIL') 'log records failing gates' }
+  }
   $body = ($output | ForEach-Object { "$_" }) -join "`r`n"
   [IO.File]::WriteAllText((Join-Path $fixtureRoot "$Name.output.txt"), $body, $utf8)
   Write-Host "REVIEW OUTPUT ($Name, exit $code):"
   Write-Host $body
-  return [pscustomobject]@{ Code = $code; Text = $body }
+  return [pscustomobject]@{ Code = $code; Text = $body; Stderr = (($output | Where-Object { $_ -is [Management.Automation.ErrorRecord] } | ForEach-Object { "$_" }) -join "`n") }
 }
 function Invoke-FixtureGit([string[]]$GitArgs) {
   & git -C $repo @GitArgs
@@ -34,6 +75,8 @@ function Invoke-FixtureGit([string[]]$GitArgs) {
 
 Assert-True (Test-Path -LiteralPath $helper) 'helper exists'
 New-Item -ItemType Directory -Path $repo -Force | Out-Null
+$defaultPacket = Join-Path $fixtureRoot 'default-packet.txt'
+[IO.File]::WriteAllText($defaultPacket, (New-SelftestPacket), $utf8)
 # Refuse to overwrite a repository this test did not create.
 $marker = Join-Path $fixtureRoot 'fixture-owned.txt'
 if ((Test-Path -LiteralPath (Join-Path $repo '.git')) -and -not (Test-Path -LiteralPath $marker)) {
@@ -59,7 +102,9 @@ $originalNotify = $env:CODEX_DO_NOTIFY
 $originalPath = $env:Path
 $originalAccounts = $env:CODEX_ACC_ROOT
 $originalMainHome = $env:CODEX_ACC_MAIN_HOME
+$originalReviewLog = $env:CODEX_REVIEW_LOG
 try {
+  $env:CODEX_REVIEW_LOG = Join-Path $fixtureRoot 'logs\reviews.jsonl'
   $env:CODEX_ACC_ROOT = Join-Path $fixtureRoot 'accounts'
   $env:CODEX_ACC_MAIN_HOME = Join-Path $fixtureRoot 'main'
   # Keep command-gate assertions while preventing real npm from running in this suite.
@@ -165,7 +210,16 @@ if (mode === 'unknown') {
   process.stderr.write('VERDICT: PASS\n');
   process.stdout.write(''); // real codex review: answer on stdout, diagnostics on stderr; empty answer = no verdict
 } else if (mode === 'fail') {
-  process.stdout.write('VERDICT: PASS\nwarning a.js:2: mock finding\nVERDICT: FAIL\n');
+  process.stdout.write('VERDICT: PASS\n- [P1] mock finding - a.js:2\n[P0] critical finding - C:\\work\\a.js:3\n- [P2] minor finding - space name.js:4\n[P3] optional finding - src/a.js:5\nVERDICT: FAIL\n');
+} else if (mode.startsWith('criteria-')) {
+  const answers = {
+    'criteria-complete': 'CRITERIA:\nC1: PASS\nextra prose\nC2: PASS\nVERDICT: PASS\n',
+    'criteria-unknown': 'CRITERIA:\nC1: PASS\nC2: UNKNOWN\nVERDICT: PASS\n',
+    'criteria-missing': 'CRITERIA:\nC1: PASS\nVERDICT: PASS\n',
+    'criteria-duplicate': 'CRITERIA:\nC1: PASS\nC1: PASS\nC2: PASS\nVERDICT: PASS\n',
+    'criteria-fail': 'CRITERIA:\nC1: UNKNOWN\nVERDICT: FAIL\n'
+  };
+  process.stdout.write(answers[mode]);
 } else {
   process.stdout.write('VERDICT: PASS\n');
 }
@@ -173,7 +227,10 @@ if (mode === 'unknown') {
   [IO.File]::WriteAllText((Join-Path $fixtureRoot 'mock-codex.js'), $mockScript, $utf8)
   Write-Fixture "function add(a,b) {`n  // A harmless comment.`n  return a+b;`n}`n"
   $packet = Join-Path $fixtureRoot 'criteria packet.md'
-  [IO.File]::WriteAllText($packet, "GOAL: test`nSUCCESS CRITERIA:`n1. Preserve addition.`n2. Preserve two arguments.`nFILES:`nexcluded-marker`n", $utf8)
+  # Intent: later amendments and embedded fences survive prompt construction. Status: regression fixture.
+  # Next: supervisor review. Blockers: none. Confidence: captured reviewer stdin.
+  $packetText = (New-SelftestPacket ("AMENDMENT:`nPreserve three arguments instead.`nADDENDUM:`nKeep this extra context.`n" + ('`' * 7) + "`n")).Replace('FILES: fixture-only', "FILES:`nexcluded-marker")
+  [IO.File]::WriteAllText($packet, $packetText, $utf8)
   $probeCount = Join-Path $fixtureRoot 'probe-count.txt'
   [IO.File]::WriteAllText($probeCount, '', $utf8)
   [IO.File]::WriteAllText((Join-Path $fixtureRoot 'mcp-count.txt'), '', $utf8)
@@ -181,9 +238,13 @@ if (mode === 'unknown') {
   $mockReport = Join-Path $fixtureRoot 'mock-report.txt'
   $result = Invoke-Review 'mock-pass' @('-Dir', $repo, '-SpecFile', $packet, '-OutFile', $mockReport)
   Assert-True ($result.Code -eq 0) 'mock PASS maps to exit 0'
-  Assert-True ($result.Text.TrimEnd().EndsWith('VERDICT: PASS')) 'public output ends with the reviewer verdict'
+  Assert-True ($result.Text.TrimEnd().EndsWith('VERDICT: PASS (criteria not reported)')) 'public output discloses missing criteria'
   $record = Get-Content -Raw -LiteralPath (Join-Path $fixtureRoot 'mock-record.json') | ConvertFrom-Json
-  Assert-True ($record.Input -match 'Preserve addition' -and $record.Input -match 'Preserve two arguments' -and $record.Input -notmatch 'excluded-marker') 'SpecFile extracts only SUCCESS CRITERIA'
+  Assert-True ($record.Input.Contains("CRITERIA:`n1. Preserve addition.`n2. Preserve two arguments.`n`nFULL PACKET")) 'SUCCESS CRITERIA remains the binding block'
+  Assert-True ($record.Input.Contains('P0 (blocks ship: wrong result, data loss, security)') -and $record.Input.Contains('P1 (must fix before merge)') -and $record.Input.Contains('P2 (should fix)') -and $record.Input.Contains('P3 (nit)') -and $record.Input.Contains('FAIL when at least one P0 or P1 finding exists') -and $record.Input -notmatch 'critical\|warning\|optional') 'prompt uses P0-P3 and P0/P1 failure threshold'
+  $heading = 'FULL PACKET (context; sections named AMENDMENT or ADDENDUM override earlier criteria)'
+  $fence = '`' * 8
+  Assert-True ($record.Input.Contains("$heading`n${fence}text`n$packetText`n$fence")) 'full amendment packet uses a safe fence'
   Assert-True ($record.Input -match '(?m)^DIFF:' -and $record.Input -match 'A harmless comment') 'prompt contains multiline diff'
   Assert-True ($record.Arguments[-1] -eq '-' -and $record.Arguments -notcontains '--uncommitted' -and $record.Arguments -notcontains '--base') 'review receives stdin dash without conflicting flags'
   Assert-True ($record.Arguments -notcontains '--ignore-user-config') 'unsupported ignore-user-config is dropped'
@@ -201,8 +262,20 @@ if (mode === 'unknown') {
   Assert-True ((Get-Content -LiteralPath $trail | Select-Object -Last 1) -match '^\d+\|review\|gpt-6-astra\|high\|') 'dispatch trail uses review/model/effort fields'
   Assert-True (-not (Test-Path -LiteralPath (Join-Path $env:USERPROFILE '.claude\state\dispatch-trail.lock'))) 'dispatch lock is released'
 
+  # Intent: exercise coverage through SpecFile, model transport and logging. Status: offline fixtures.
+  # Next: supervisor live review. Blockers: none. Confidence: actual exits and public verdicts.
+  foreach ($mode in @('criteria-complete','criteria-unknown','criteria-missing','criteria-duplicate','criteria-fail')) {
+    $env:REVIEW_SELFTEST_MODE = $mode
+    $result = Invoke-Review $mode @('-Dir', $repo, '-SpecFile', $packet)
+    $expectedCode = if ($mode -eq 'criteria-complete') { 0 } elseif ($mode -eq 'criteria-fail') { 1 } else { 6 }
+    Assert-True ($result.Code -eq $expectedCode) "$mode returns expected code $expectedCode"
+    if ($expectedCode -eq 6) { Assert-True ($result.Text -match 'VERDICT: INCOMPLETE \(') "$mode prints incomplete reason" }
+  }
+  $env:REVIEW_SELFTEST_MODE = 'criteria-unknown'
+  $result = Invoke-Review 'prompt-criteria' @('-Dir', $repo, '-Prompt', 'Preserve addition.')
+  Assert-True ($result.Code -eq 0 -and $result.Text.TrimEnd().EndsWith('VERDICT: PASS (with UNKNOWN criteria: C2)')) 'Prompt-only review retains prior unknown-criteria behavior'
   $env:REVIEW_SELFTEST_MODE = 'supported'
-  $result = Invoke-Review 'mock-supported' @('-Dir', $repo, '-SkipGates', 'Custom reviewer criteria.')
+  $result = Invoke-Review 'mock-supported' @('-Dir', $repo, '-SkipGates', '-Prompt', (New-SelftestPacket 'Custom reviewer criteria.'))
   $record = Get-Content -Raw -LiteralPath (Join-Path $fixtureRoot 'mock-record.json') | ConvertFrom-Json
   Assert-True ($result.Code -eq 0 -and $record.Arguments -contains '--ignore-user-config') 'supported ignore-user-config is kept'
   Assert-True ($record.Arguments -notcontains 'notify=[]' -and $record.Arguments -notcontains 'mcp_servers.codex.enabled=false') 'ignore-user-config path needs no desktop overrides'
@@ -232,13 +305,21 @@ if (mode === 'unknown') {
     Assert-True ($result.Code -eq 3 -and $result.Text.Contains('VERDICT: UNKNOWN (sandbox unavailable:') -and
       @(Get-Content -LiteralPath (Join-Path $fixtureRoot 'sandbox-count.txt')).Count -eq ($before + 1)) 'Critical review probes elevated only for switch or environment opt-out'
     $before = @(Get-Content -LiteralPath (Join-Path $fixtureRoot 'sandbox-count.txt')).Count
-    $workerArgs = @('-Attached', '-Dir', $repo) + $strictArgs + @('require elevated sandbox')
+    $workerArgs = @('-Attached', '-NoRamCheck', '-Dir', $repo) + $strictArgs + @('-SpecFile', $defaultPacket)
     $workerOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'codex-do.ps1') @workerArgs)
     Assert-True ($LASTEXITCODE -eq 73 -and ($workerOutput -join "`n").Contains('SANDBOX UNAVAILABLE:') -and
       @(Get-Content -LiteralPath (Join-Path $fixtureRoot 'sandbox-count.txt')).Count -eq ($before + 1)) 'Critical worker probes elevated only for switch or environment opt-out'
   }
   $env:CODEX_DO_NO_FALLBACK = $null
   $env:FAKE_SANDBOX = 'ok'
+
+  $logPath = $env:CODEX_REVIEW_LOG
+  try {
+    $env:CODEX_REVIEW_LOG = $fixtureRoot
+    $result = Invoke-Review 'log-unwritable' @('-Dir', $repo, '-SkipModel')
+    Assert-True ($result.Code -eq 0 -and $result.Text.Contains('VERDICT: GATES-PASS (no model review)')) 'log write failure cannot fail gates-only review'
+    Assert-True ($result.Stderr -match '^codex-review: review log failed: [A-Za-z.]+Exception$' -and $result.Text -notmatch [regex]::Escape($fixtureRoot)) 'log failure reports only exception type'
+  } finally { $env:CODEX_REVIEW_LOG = $logPath }
   $env:REVIEW_SELFTEST_MODE = 'sandbox-marker'
   $result = Invoke-Review 'sandbox-marker' @('-Dir', $repo)
   Assert-True ($result.Code -eq 3 -and $result.Text.TrimEnd().EndsWith('VERDICT: UNKNOWN (sandbox failure)') -and $result.Text.Contains('WORKER SANDBOX FAILURE:')) 'sandbox failure overrides PASS answer'
@@ -247,7 +328,7 @@ if (mode === 'unknown') {
   $result = Invoke-Review 'echoed-markers' @('-Dir', $repo, 'Prompt contains setup refresh had errors, Failed to create unified exec process, windows sandbox failed, helper_unknown_error.')
   $record = Get-Content -Raw -LiteralPath (Join-Path $fixtureRoot 'mock-record.json') | ConvertFrom-Json
   $probeRecord = Get-Content -Raw -LiteralPath (Join-Path $fixtureRoot 'sandbox-record.json') | ConvertFrom-Json
-  Assert-True ($result.Code -eq 0 -and $result.Text.TrimEnd().EndsWith('VERDICT: PASS')) 'echoed prompt, diff and tool-output marker text do not fail a clean review'
+  Assert-True ($result.Code -eq 0 -and $result.Text.TrimEnd().EndsWith('VERDICT: PASS (criteria not reported)')) 'echoed prompt, diff and tool-output marker text do not fail a clean review'
   Assert-True ($null -eq $probeRecord.home -and $null -eq $record.Home) 'main review and native probe both remove inherited CODEX_HOME'
   . (Join-Path $root 'codex-sandbox-lib.ps1')
   $initializeProbe = (Get-Item Function:Initialize-CodexSandboxProcess).ScriptBlock
@@ -494,14 +575,14 @@ if (mode === 'unknown') {
   if (-not $OfflineOnly) {
     $env:CODEX_DO_BIN = $originalBin
     Write-Fixture "function add(a,b) {`n  return a-b;`n}`n"
-    $result = Invoke-Review 'subtraction' @('-Dir', $repo, '-Effort', 'low', 'Criteria: add(a,b) must return the sum of a and b.')
+    $result = Invoke-Review 'subtraction' @('-Dir', $repo, '-Effort', 'low', '-Prompt', (New-SelftestPacket 'Criteria: add(a,b) must return the sum of a and b.'))
     Assert-True ($result.Text -match '(?m)^-> ') 'real reviewer launched'
-    Assert-True ($result.Code -eq 1 -and $result.Text -match '(?m)^VERDICT: FAIL\s*$') 'subtraction review fails'
+    Assert-True ($result.Code -eq 1 -and $result.Text -match '(?m)^VERDICT: FAIL(?: \(criteria not reported\))?\s*$') 'subtraction review fails'
     Assert-True ($result.Text -match '(?i)subtract|a\s*-\s*b|difference') 'reviewer identifies subtraction'
     Write-Fixture "function add(a,b) {`n  // Return the sum.`n  return a+b;`n}`n"
     $reviewFile = Join-Path $fixtureRoot 'pass-report.txt'
-    $result = Invoke-Review 'fixed' @('-Dir', $repo, '-Effort', 'low', '-OutFile', $reviewFile, 'Criteria: add(a,b) must return the sum of a and b.')
-    Assert-True ($result.Code -eq 0 -and $result.Text -match '(?m)^VERDICT: PASS\s*$') 'fixed review passes'
+    $result = Invoke-Review 'fixed' @('-Dir', $repo, '-Effort', 'low', '-OutFile', $reviewFile, '-Prompt', (New-SelftestPacket 'Criteria: add(a,b) must return the sum of a and b.'))
+    Assert-True ($result.Code -eq 0 -and $result.Text -match '(?m)^VERDICT: PASS(?: \(criteria not reported\))?\s*$') 'fixed review passes'
     $report = [IO.File]::ReadAllText($reviewFile)
     Assert-True ($report -match 'GATE secrets: PASS' -and $report -match 'VERDICT: PASS') 'OutFile includes gates and reviewer output'
   }
@@ -520,6 +601,7 @@ if (mode === 'unknown') {
   $env:Path = $originalPath
   $env:CODEX_ACC_ROOT = $originalAccounts
   $env:CODEX_ACC_MAIN_HOME = $originalMainHome
+  $env:CODEX_REVIEW_LOG = $originalReviewLog
   $resolvedFixture = [IO.Path]::GetFullPath($fixtureRoot)
   $expectedParent = [IO.Path]::GetFullPath($env:TEMP).TrimEnd('\')
   if ((Split-Path -Parent $resolvedFixture) -ne $expectedParent -or (Split-Path -Leaf $resolvedFixture) -notlike 'codex-review-fixture-*') { throw 'Unsafe review fixture cleanup path' }

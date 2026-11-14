@@ -2,13 +2,14 @@
  * Status: SQLite lease and replay regression contract. Next: independent supervisor review.
  * Blockers: none. Confidence: child races, injected I/O faults and DB assertions. */
 'use strict';
+require('./ontology-setup');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const { performance } = require('node:perf_hooks');
-const { Store } = require('../collector/db');
+const { Store, SCHEMA_VERSION } = require('../collector/db');
 const { collect, options, drainStdin } = require('../collector/collect');
 const { PassThrough } = require('node:stream');
 const { paths, linkRuns } = require('../collector/sources');
@@ -179,7 +180,7 @@ test('v1 cursors replay and adopt existing offset-based IDs without duplicating 
       offset += Buffer.byteLength(text) + 1;
     }
     store.setMeta('schema_version', '1'); store.close(); store = new Store(database);
-    assert.equal(store.meta('schema_version'), '6'); assert.equal(store.state(hash(file)).offset, 0);
+    assert.equal(store.meta('schema_version'), String(SCHEMA_VERSION)); assert.equal(store.state(hash(file)).offset, 0);
     let checked = 0; await ingest(store, item, () => ++checked > 1);
     store.close(); store = new Store(database);
     await ingest(store, item, () => false);

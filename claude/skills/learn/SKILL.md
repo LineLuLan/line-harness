@@ -1,6 +1,6 @@
 ---
 name: learn
-description: "Generate a layered HTML learning explainer so Line can master a topic, framework, or repo feature/system before working on it. Repo knowledge comes from codegraph or targeted file reads; framework/library knowledge MUST be fetched fresh through context7, never from memory. Auto-triggers on /learn <topic>, or natural phrases like 'tôi muốn học', 'cho tôi học', 'giúp tôi nắm', 'dạy tôi', 'I want to learn', 'help me understand the architecture of', 'explain this system so I can work on it'."
+description: "Generate a layered HTML learning explainer so Line can master a topic, framework, or repo feature/system before working on it. Repo knowledge comes from targeted Grep + line-range Read; framework/library knowledge MUST be fetched fresh through context7, never from memory. Auto-triggers on /learn <topic>, or natural phrases like 'tôi muốn học', 'cho tôi học', 'giúp tôi nắm', 'dạy tôi', 'I want to learn', 'help me understand the architecture of', 'explain this system so I can work on it'."
 verified: 2026-08
 layer: utility
 category: learning
@@ -14,14 +14,14 @@ triggers: ["/learn", "tôi muốn học", "cho tôi học", "muốn nắm", "gi�
 Turn "tôi muốn học ABC" into ONE self-contained HTML file that teaches ABC in
 four layers: intuition → architecture → mechanics → practice. The reader is
 Line: a builder who needs to hold the full design of a feature or system in
-their head before touching it. Evidence-first: real code via codegraph, real
+their head before touching it. Evidence-first: real code via Grep/Read, real
 docs via context7. Nothing about library versions or APIs comes from memory.
 
 ## Step 1 — Classify the topic
 
 | Topic shape | Example | Evidence sources |
 |---|---|---|
-| Repo feature/system | "payment flow của TwoHearts" | codegraph (+ context7 for the frameworks it uses) |
+| Repo feature/system | "payment flow của TwoHearts" | Grep + line-range Read (+ context7 for the frameworks it uses) |
 | Framework/library | "Next.js App Router", "Drizzle migrations" | context7 (mandatory) |
 | Theory/concept | "event sourcing", "CAP theorem" | web search of primary sources, dated |
 | Mixed (most common) | "học feature X để tôi sửa nó" | all of the above |
@@ -34,9 +34,9 @@ question with 2–3 concrete options before gathering. Otherwise do not ask.
 **Repo code** — docs first when they exist: check the repo's docs INDEX and
 the module's SPEC/SSOT before scanning code; a maintained SPEC carries more
 evidence per token than a blind sweep, and code then verifies the SPEC.
-Then codegraph: `codegraph_explore` with the repo's `projectPath`. Collect: entry points, core symbols with verbatim source, call
-paths between them, blast radius. Fallback when the repo has no `.codegraph/`:
-Grep for the feature's route/handler/model names, then Read by line range.
+Then code (codegraph was removed 2026-11-15): Grep for the feature's route/handler/model names, then Read by
+line range. Collect: entry points, core symbols with verbatim source, call paths between them, blast radius
+(Grep for callers of each core symbol).
 Never read whole files to explore. Every code claim in the output carries a
 `path:line` reference.
 
@@ -57,7 +57,7 @@ After the core slice, run expansion rounds until a round finds nothing new:
 
 1. Grep the whole repo for the topic's signals: imports of the core module,
    its table names, env vars, Redis key prefixes, event names, tool names.
-2. Codegraph blast-radius on the core symbols — every caller outside the
+2. Grep blast-radius on the core symbols (callers of each exported name) — every caller outside the
    module is a related feature to cover (channel workers, cron, webhooks,
    scripts/, test harnesses, admin/dashboard routes).
 3. Read the docs INDEX and the SPEC of every adjacent module the sweep hit.
@@ -121,7 +121,7 @@ Every explainer has exactly these four sections, in this order:
 | Pitfall | Impact | Fix |
 |---|---|---|
 | Explaining the framework from memory | Stale/wrong APIs taught as fact | context7 pass is mandatory, dated |
-| Generic explainer ignoring the repo | Line learns theory, not their system | codegraph slice first; repo names in every diagram |
+| Generic explainer ignoring the repo | Line learns theory, not their system | repo code slice first; repo names in every diagram |
 | Wall of text, no layers | Nothing sticks | enforce the 4-layer structure |
 | Only the happy path | Line can't debug what they "learned" | include one failure path in tier 3 |
 | Dumping whole source files into the page | Unreadable, huge file | excerpts + `path:line` reading order |
@@ -131,7 +131,7 @@ Every explainer has exactly these four sections, in this order:
 ### Example: "tôi muốn học order webhook flow của TwoHearts backend"
 
 1. Classify: mixed (repo system + its frameworks).
-2. Gather: `codegraph_explore(projectPath: D:\01_Workspaces\TwoHearts\<repo>)`
+2. Gather: Grep + line-range Read in `D:\01_Workspaces\TwoHearts\<repo>`
    for webhook handler → queue → worker call paths; context7 for the queue
    library and framework route handler semantics; note idempotency-key code.
 3. Write the 4 layers: postman analogy → component diagram (gateway, handler,

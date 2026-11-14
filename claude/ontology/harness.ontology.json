@@ -1,0 +1,666 @@
+{
+  "$comment": "Line Harness ontology: the single source for routing, quota, review and permission rules. Consumers: Line Hub (routeAdvice, alert RULES), CLAUDE.md generated blocks, ontology-check sensor. Edit here, then run ontology-check --write. Owner: Line. Values copied from the live system on 2026-11-15.",
+  "version": "1.0.0",
+  "updated": "2026-11-15",
+  "objects": {
+    "models": [
+      {
+        "id": "opus",
+        "side": "claude",
+        "name": "Opus 5.5",
+        "slug": "claude-opus-5-5",
+        "roles": [
+          "supervisor",
+          "opus-subagent-worker"
+        ]
+      },
+      {
+        "id": "fable51",
+        "side": "claude",
+        "name": "Fable 5.1",
+        "slug": "claude-fable-5-1",
+        "roles": [
+          "layer3-important",
+          "root-cause",
+          "architecture"
+        ]
+      },
+      {
+        "id": "fable52",
+        "side": "claude",
+        "name": "Fable 5.2",
+        "slug": "claude-fable-5-2",
+        "roles": [
+          "layer3-critical",
+          "fable-subagent"
+        ],
+        "note": "The Agent tool `fable` alias reported itself as claude-fable-5-2 on 2026-11-14."
+      },
+      {
+        "id": "sol",
+        "side": "codex",
+        "name": "GPT-6 Sol",
+        "slug": "gpt-6-sol",
+        "defaultEffort": "high"
+      },
+      {
+        "id": "astra",
+        "side": "codex",
+        "name": "GPT-6 Astra",
+        "slug": "gpt-6-astra",
+        "defaultEffort": "high",
+        "fallbackEffort": "xhigh"
+      },
+      {
+        "id": "luna",
+        "side": "codex",
+        "name": "GPT-6 Luna",
+        "slug": "gpt-6-luna",
+        "defaultEffort": "max"
+      },
+      {
+        "id": "sol61",
+        "side": "codex",
+        "name": "GPT-6.1 Sol",
+        "slug": "gpt-6.1-sol",
+        "status": "candidate",
+        "note": "Not routed. 5/5 runs had sandbox failures and ~4.6M tokens/run (Hub, 2026-11-14). A/B test before use."
+      }
+    ],
+    "tiers": [
+      {
+        "id": "Skip",
+        "when": "under ~20 lines of config, typo, docs",
+        "layers": [
+          3
+        ]
+      },
+      {
+        "id": "Standard-A",
+        "when": "1-2 files, runnable VALIDATE, single-branch logic, worked examples",
+        "layers": [
+          1,
+          3
+        ],
+        "layer2": "optional over ~150 lines, logged"
+      },
+      {
+        "id": "Standard-B",
+        "when": "3+ files, long command chains, repo discovery, vague VALIDATE, prior Sol STOP/FAIL",
+        "layers": [
+          1,
+          3
+        ],
+        "layer2": "optional over ~150 lines, logged"
+      },
+      {
+        "id": "Important",
+        "when": "multi-file, API contract, shared module",
+        "layers": [
+          1,
+          2,
+          3
+        ],
+        "layer2": "gpt-6-astra (mandatory) + a Fable subagent",
+        "preRead": "Fable subagent reads the packet before dispatch"
+      },
+      {
+        "id": "Critical",
+        "when": "security, payment, auth, migration",
+        "layers": [
+          1,
+          2,
+          3
+        ],
+        "layer2": "gpt-6-astra (mandatory) + a Fable 5.2 subagent",
+        "preRead": "Fable 5.2",
+        "approval": "Line approves in writing"
+      },
+      {
+        "id": "Exploration",
+        "when": "locate, list, count, inventory, synthesis",
+        "layers": [
+          3
+        ]
+      }
+    ],
+    "artifacts": [
+      {
+        "id": "packet",
+        "file": "<repo>/.packets/*.md",
+        "producedBy": "supervisor",
+        "requires": [
+          "GOAL",
+          "BUSINESS REASON",
+          "SUCCESS CRITERIA",
+          "FILES",
+          "PATTERNS",
+          "CONSTRAINTS",
+          "NON-GOALS",
+          "DONE WHEN",
+          "VALIDATE",
+          "STOP RULES",
+          "ROLLBACK",
+          "DOCS CHECKED",
+          "PACKET CHECK"
+        ]
+      },
+      {
+        "id": "run",
+        "file": "~/.claude/state/runs/<runId>/run.json",
+        "producedBy": "codex-do.ps1",
+        "links": [
+          "packet via specSha256"
+        ]
+      },
+      {
+        "id": "review",
+        "file": "~/.claude/state/reviews.jsonl",
+        "producedBy": "codex-review.ps1",
+        "fields": [
+          "mode: gates-only|model",
+          "verdict",
+          "criteria: complete|incomplete|none|n/a"
+        ]
+      },
+      {
+        "id": "ledger",
+        "file": "~/.claude/state/review-ledger.log",
+        "producedBy": "ledger-add.ps1 -SpecFile <packet>",
+        "links": [
+          "runs via runs="
+        ]
+      },
+      {
+        "id": "handoff",
+        "file": "~/.handoff/handoff-<date>-<time>.md",
+        "producedBy": "supervisor"
+      }
+    ]
+  },
+  "quota": {
+    "paceDefinition": "pace = used % / % of the window elapsed; ignored in the first 5% of a window",
+    "thresholds": {
+      "codexPace1": 1,
+      "codexPace2": 1.3,
+      "codexUsed1": 70,
+      "codexUsed2": 85,
+      "codexUsed3": 95,
+      "claudePace": 1.2,
+      "claudeUsed": 70,
+      "claude5Used": 80
+    },
+    "codexLevels": [
+      {
+        "id": "C0",
+        "test": "pace <= codexPace1 and used < codexUsed1",
+        "route": "Normal routing table.",
+        "label": "Pace <= {codexPace1} and used < {codexUsed1}%"
+      },
+      {
+        "id": "C1",
+        "test": "pace > codexPace1 (to codexPace2) or used codexUsed1..codexUsed2-1, or over daily budget",
+        "route": "Standard-B with <= 3 files and a runnable VALIDATE goes to `gpt-6-sol` high. No Luna exploration (Claude Explore subagent). Layer 2 = Fable subagent.",
+        "label": "Pace > {codexPace1} to {codexPace2}, used {codexUsed1}-{codexUsed2-1}%, or over daily budget"
+      },
+      {
+        "id": "C2",
+        "test": "pace > codexPace2 or used codexUsed2..codexUsed3-1",
+        "route": "Codex for Important/Critical. Standard work goes to an Opus subagent with the same packet (if Claude is stressed too, see below). No resumes.",
+        "label": "Pace > {codexPace2} or used {codexUsed2}-{codexUsed3-1}%"
+      },
+      {
+        "id": "C3",
+        "test": "used >= codexUsed3",
+        "route": "No Codex. Opus subagent = worker, Fable subagent = layer 2, ledger `worker=opus`.",
+        "label": "Used >= {codexUsed3}%"
+      }
+    ],
+    "claudeRules": [
+      {
+        "id": "K1",
+        "test": "Claude 7-day pace > claudePace or used >= claudeUsed",
+        "text": "No Opus subagent workers; layer 2 = Astra; Fable only for Critical layer 3; supervisor edits <= 20 lines.",
+        "bullet": "Claude 7-day pace > {claudePace} or used >= {claudeUsed}%: no Opus subagent workers; layer 2 = Astra; Fable only for Critical layer 3; supervisor edits <= 20 lines."
+      },
+      {
+        "id": "BOTH",
+        "test": "K1 and Codex not C3",
+        "text": "Standard-A and Standard-B go to gpt-6-sol high and are never deferred.",
+        "source": "Line 2026-11-15",
+        "bullet": "Both sides stressed (Claude rule above active and Codex not >= {codexUsed3}%): Standard-A and Standard-B go to `gpt-6-sol` high and are never deferred (Line, 2026-11-15)."
+      },
+      {
+        "id": "STOP",
+        "test": "C3 and K1",
+        "text": "No new packets; report to Line. This is the only stop rule.",
+        "source": "Line 2026-11-15",
+        "bullet": "Codex used >= {codexUsed3}% while the Claude rule is active: no new packets; report to Line. This is the only stop rule."
+      },
+      {
+        "id": "K5",
+        "test": "Claude 5-hour used >= claude5Used",
+        "text": "Finish the current check, update the handoff, pause Claude work until the window resets.",
+        "bullet": "Claude 5-hour used >= {claude5Used}%: finish the current check, update the handoff, pause Claude work until the window resets."
+      },
+      {
+        "id": "THREAD",
+        "test": "one Codex session over 50M tokens",
+        "text": "Stop and report to Line. Codex desktop and CLI sessions count against the budget.",
+        "bullet": "Codex desktop and CLI sessions count against the budget. One session over 50M tokens: stop and report to Line."
+      }
+    ],
+    "dailyBudget": {
+      "perSidePctOfWeek": 15,
+      "overBudgetBurnPct": 20,
+      "tracked": false
+    },
+    "templateRules": "Placeholders {key} take quota.thresholds[key]; {key-1} subtracts 1; keys containing \"Pace\" print with at least one decimal (1 -> 1.0, 1.3 -> 1.3); others print as integers."
+  },
+  "routing": {
+    "workTypes": [
+      "Standard-A",
+      "Standard-B",
+      "Important/Critical worker",
+      "Exploration",
+      "Layer-2 review",
+      "Layer-3 Important",
+      "Layer-3 Critical"
+    ],
+    "labels": {
+      "sol": "gpt-6-sol high",
+      "astra": "gpt-6-astra high",
+      "astraNr": "gpt-6-astra high (no resumes)",
+      "luna": "gpt-6-luna max then gpt-6-sol ultra",
+      "sbCond": "gpt-6-sol high if <=3 files and runnable VALIDATE, else gpt-6-astra high",
+      "opus": "Opus subagent",
+      "explore": "Claude Explore subagent",
+      "fable": "Fable subagent",
+      "l2astra": "gpt-6-astra"
+    },
+    "matrix": {
+      "K0": {
+        "C0": [
+          "sol",
+          "astra",
+          "astra",
+          "luna",
+          "l2astra"
+        ],
+        "C1": [
+          "sol",
+          "sbCond",
+          "astra",
+          "explore",
+          "fable"
+        ],
+        "C2": [
+          "opus",
+          "opus",
+          "astraNr",
+          "explore",
+          "fable"
+        ],
+        "C3": [
+          "opus",
+          "opus",
+          "opus",
+          "explore",
+          "fable"
+        ]
+      },
+      "K1": {
+        "C0": [
+          "sol",
+          "astra",
+          "astra",
+          "luna",
+          "l2astra"
+        ],
+        "C1": [
+          "sol",
+          "sbCond",
+          "astra",
+          "explore",
+          "l2astra"
+        ],
+        "C2": [
+          "sol",
+          "sol",
+          "astraNr",
+          "explore",
+          "l2astra"
+        ],
+        "C3": "STOP"
+      }
+    },
+    "layer3": {
+      "K0": "Fable via /model",
+      "K1": "Opus supervisor (Fable only for Critical)",
+      "critical": "Fable 5.2 high via /model claude-fable-5-2"
+    },
+    "stopText": "No new packets; report to Line",
+    "fallback": "gpt-6-astra xhigh, one attempt, then replan. Never start at xhigh.",
+    "k5Banner": "Claude 5-hour >= {claude5Used}%: finish the current check, update the handoff, pause Claude work until the window resets"
+  },
+  "alerts": {
+    "$comment": "Line Hub rules a-h. Toasts never stop work.",
+    "quotaPace": 1.3,
+    "quotaUsed": 85,
+    "handoffUsed": 80,
+    "commitPct": 90,
+    "diskFreePct": 10,
+    "folderDays": 14,
+    "cleanDrop": 15,
+    "cleanMinTasks": 3,
+    "vhdxGB": 80,
+    "staleSecs": 600,
+    "threadTokens": 50000000,
+    "threadActiveHours": 48
+  },
+  "actions": [
+    {
+      "id": "dispatch-worker",
+      "permission": "ALLOW",
+      "via": "codex-do.ps1 -Dir <repo ROOT> -SpecFile <packet>",
+      "source": "AGENTS.md section 15"
+    },
+    {
+      "id": "install-live",
+      "permission": "ALLOW",
+      "note": "supervisor copies verified repo files into ~/.claude or ~/.codex after layer 3",
+      "source": "harness upgrade mandate 2026-10-10"
+    },
+    {
+      "id": "commit",
+      "permission": "LINE_ONLY",
+      "note": "only when Line orders that exact action in the current conversation",
+      "source": "AGENTS.md section 15"
+    },
+    {
+      "id": "push",
+      "permission": "LINE_ONLY",
+      "enforcedBy": [
+        "git-push-guard.ps1"
+      ],
+      "source": "AGENTS.md section 15"
+    },
+    {
+      "id": "open-pr",
+      "permission": "ASK",
+      "note": "never pick the target branch; ask Line",
+      "source": "AGENTS.md section 13"
+    },
+    {
+      "id": "deploy-release",
+      "permission": "LINE_ONLY",
+      "source": "AGENTS.md section 7"
+    },
+    {
+      "id": "delete-outside-project",
+      "permission": "LINE_ONLY",
+      "source": "AGENTS.md section 7"
+    },
+    {
+      "id": "db-write-destructive",
+      "permission": "LINE_ONLY",
+      "note": "two written confirmations + backup + restore plan",
+      "source": "AGENTS.md section 7"
+    },
+    {
+      "id": "read-secrets",
+      "permission": "LINE_ONLY",
+      "source": "AGENTS.md section 7"
+    },
+    {
+      "id": "openrouter-spend",
+      "permission": "LINE_ONLY",
+      "note": "only openai/gpt-6-luna runs; exceptions need OPENROUTER_GUARD_OVERRIDE=1 and Line naming model + budget",
+      "enforcedBy": [
+        "openrouter-model-guard.ps1"
+      ]
+    },
+    {
+      "id": "stop-for-low-ram",
+      "permission": "NEVER",
+      "note": "sessions always run; Windows ends a process if memory truly runs out",
+      "source": "Line 2026-11-14"
+    },
+    {
+      "id": "ask-line-to-clear",
+      "permission": "NEVER",
+      "note": "compaction handles context; at 85%+ update the handoff silently",
+      "source": "Line 2026-11-15"
+    }
+  ],
+  "hooks": {
+    "claude": [
+      {
+        "event": "SessionStart",
+        "script": "ontology-check.js"
+      },
+      {
+        "event": "PreToolUse",
+        "matcher": "Bash|PowerShell",
+        "script": "shell-guards.ps1",
+        "enforces": [
+          "push",
+          "openrouter-spend",
+          "no-heredoc"
+        ]
+      },
+      {
+        "event": "PreToolUse",
+        "matcher": "Edit|Write|MultiEdit",
+        "script": "edit-delegation-guard.ps1",
+        "enforces": [
+          "delegation"
+        ]
+      },
+      {
+        "event": "PostToolUse",
+        "matcher": "*",
+        "script": "inel-event.js"
+      },
+      {
+        "event": "PostToolUse",
+        "matcher": "mcp__.*|Skill|Agent",
+        "script": "track-tools.js"
+      },
+      {
+        "event": "PostToolUse",
+        "matcher": "Edit|Write",
+        "script": "quality-typecheck.ps1"
+      },
+      {
+        "event": "PostToolUse",
+        "matcher": "Edit|Write",
+        "script": "quality-console-warn.ps1"
+      },
+      {
+        "event": "Notification",
+        "script": "notify-sound.ps1"
+      },
+      {
+        "event": "Notification",
+        "script": "inel-event.js"
+      },
+      {
+        "event": "Stop",
+        "script": "notify-sound.ps1"
+      },
+      {
+        "event": "Stop",
+        "script": "inel-event.js"
+      },
+      {
+        "event": "Stop",
+        "script": "collect.js"
+      },
+      {
+        "event": "UserPromptSubmit",
+        "script": "edit-delegation-guard.ps1"
+      },
+      {
+        "event": "UserPromptSubmit",
+        "script": "context-guard.ps1",
+        "enforces": [
+          "ask-line-to-clear"
+        ]
+      },
+      {
+        "event": "UserPromptSubmit",
+        "script": "inel-event.js"
+      },
+      {
+        "event": "SessionEnd",
+        "script": "inel-event.js"
+      },
+      {
+        "event": "PostToolUseFailure",
+        "script": "inel-event.js"
+      },
+      {
+        "event": "SessionStart",
+        "script": "codex-job-watcher.ps1"
+      },
+      {
+        "event": "SessionStart",
+        "script": "edit-delegation-guard.ps1"
+      },
+      {
+        "event": "SessionStart",
+        "script": "collect.js"
+      }
+    ],
+    "codex": [
+      "codex-delegation-reminder.ps1",
+      "codex-job-watcher.ps1",
+      "git-push-guard.ps1",
+      "notify-sound.ps1",
+      "quality-console-warn.ps1",
+      "quality-typecheck.ps1",
+      "track-tools.js"
+    ],
+    "retired": [
+      {
+        "script": "packet-docs-guard.ps1",
+        "date": "2026-11-15",
+        "why": "replaced by codex-do packet lint (exit 74)"
+      },
+      {
+        "script": "codegraph-init-check.ps1",
+        "date": "2026-11-15",
+        "why": "codegraph MCP removed (4 calls in 30 days)"
+      }
+    ]
+  },
+  "rules": [
+    {
+      "id": "repo-root-dir",
+      "text": "Always pass the repo ROOT as -Dir; one worker per repo at a time.",
+      "date": "2026-11-15",
+      "enforcement": "PROSE",
+      "note": "codex-do Dir lock only blocks two workers in one Dir; nothing forces the repo root yet"
+    },
+    {
+      "id": "ledger-specfile",
+      "text": "Write every ledger line with ledger-add.ps1 -SpecFile <packet>.",
+      "date": "2026-11-14",
+      "enforcement": "PROSE"
+    },
+    {
+      "id": "fail-limit",
+      "text": "After 2 FAILs at Important/Critical (3 at Standard) stop, report to Line, redesign.",
+      "values": {
+        "important": 2,
+        "standard": 3
+      },
+      "enforcement": "PROSE"
+    },
+    {
+      "id": "ram-never-blocks",
+      "text": "The RAM check reports commit headroom only; it never blocks, waits or stops.",
+      "date": "2026-11-14",
+      "enforcement": "SENSOR",
+      "enforcedBy": [
+        "ram-preflight.ps1 always returns true",
+        "claude/tests/ram-preflight.test.ps1"
+      ]
+    },
+    {
+      "id": "context-silent",
+      "text": "Silent below 85% context; at 85%+ update the handoff and keep working.",
+      "values": {
+        "silentBelowPct": 85
+      },
+      "date": "2026-11-15",
+      "enforcement": "HOOK",
+      "enforcedBy": [
+        "context-guard.ps1"
+      ]
+    },
+    {
+      "id": "critical-fable52",
+      "text": "Every Fable step at Critical uses Fable 5.2.",
+      "date": "2026-11-14",
+      "enforcement": "PROSE"
+    },
+    {
+      "id": "review-evidence",
+      "text": "Layer 2 counts only from explicit evidence: ledger field 3 'yes', or a stated L2 result; GATES-PASS is not a model review.",
+      "date": "2026-11-15",
+      "enforcement": "SENSOR",
+      "enforcedBy": [
+        "hub/collector/ledger.js",
+        "hub/tests/v10.test.js"
+      ]
+    },
+    {
+      "id": "no-codegraph",
+      "text": "codegraph is removed; use Grep and line-range Read for code.",
+      "date": "2026-11-15",
+      "enforcement": "PROSE"
+    }
+  ],
+  "staleValues": [
+    {
+      "pattern": "60/70/80",
+      "why": "context nags were removed 2026-11-15 (context-silent)"
+    },
+    {
+      "pattern": "Fable 5\\.1[^\\n]{0,40}Critical|Critical[^\\n]{0,40}Fable 5\\.1",
+      "why": "Critical uses Fable 5.2 (critical-fable52)"
+    },
+    {
+      "pattern": "codegraph_explore|codegraph init",
+      "why": "codegraph removed (no-codegraph)"
+    },
+    {
+      "pattern": "exit 75|not enough free RAM",
+      "why": "RAM never blocks (ram-never-blocks)"
+    },
+    {
+      "pattern": "Both sides used > ?85",
+      "why": "only stop rule is C3+K1 (STOP)"
+    }
+  ],
+  "reviewTable": [
+    [
+      "Skip (under ~20 lines of config, typo, docs)",
+      "3"
+    ],
+    [
+      "Standard-A / Standard-B",
+      "1 + 3 (`codex-review.ps1 -SkipModel`); layer 2 optional over ~150 lines, logged"
+    ],
+    [
+      "Important (multi-file, API contract, shared module)",
+      "1 + 2 (`gpt-6-astra`, mandatory) + a Fable 5.1 subagent + 3"
+    ],
+    [
+      "Critical (security, payment, auth, migration)",
+      "Important + Line approves in writing"
+    ]
+  ]
+}

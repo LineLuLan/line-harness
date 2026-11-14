@@ -4,6 +4,7 @@
  * subfolder such as `<repo>/datasets` therefore counts as `<repo>`. repoFromUrl(url)
  * returns the last path segment of a remote URL without `.git` (never the owner).
  * Paths that do not exist (or are not in a repo) fall back to the plain basename.
+ * v7: a linked worktree (`.git` file -> <main>/.git/worktrees/x) is named after the main checkout.
  * Next: none. Blockers: none. Confidence: tests/repo.test.js. */
 'use strict';
 const fs = require('node:fs');
@@ -14,6 +15,23 @@ const MAX_DEPTH = 32;
 const cache = new Map();
 function hasGit(dir) {
   try { fs.statSync(path.join(dir, '.git')); return true; } catch { return false; }
+}
+// v7: a linked worktree has a `.git` FILE "gitdir: <main>/.git/worktrees/<name>"; its repo is the
+// main checkout's folder. Submodules ("gitdir: ../.git/modules/x") and anything else keep the folder.
+function repoName(dir) {
+  let text;
+  try {
+    const file = path.join(dir, '.git');
+    if (!fs.statSync(file).isFile()) return basename(dir);
+    text = fs.readFileSync(file, 'utf8').slice(0, 4096);
+  } catch { return basename(dir); }
+  const m = /^gitdir:\s*(.+?)\s*$/m.exec(text);
+  if (!m) return basename(dir);
+  const gitdir = path.resolve(dir, m[1]);
+  const parts = gitdir.split(/[\\/]+/);
+  const at = parts.lastIndexOf('worktrees');
+  if (at < 2 || parts[at - 1].toLowerCase() !== '.git') return basename(dir);
+  return name(parts[at - 2]) ?? basename(dir);
 }
 // Only walk local absolute paths. UNC / network paths (\\host\share, //host) could block for an
 // SMB timeout per level (or start a WSL VM), and a relative or drive-less path would resolve
@@ -29,7 +47,7 @@ function gitRoot(dir) {
   if (cache.has(dir)) return cache.get(dir);
   let current = path.resolve(dir), found = null;
   for (let i = 0; i < MAX_DEPTH; i++) {
-    if (hasGit(current)) { found = basename(current); break; }
+    if (hasGit(current)) { found = repoName(current); break; }
     const parent = path.dirname(current);
     if (parent === current) break;
     current = parent;

@@ -1,7 +1,11 @@
 /* Intent: prove the dashboard server is local-only, read-only, allowlisted and self-stopping.
- * Status: wave 2 contract; UI v4 adds the supervisor page, radars, task classifier and font routes. Next: none. Blockers: none.
+ * Status: wave 2 contract; UI v4 adds the supervisor page, radars, task classifier and font routes.
+ * UI v6 (H6a): the v4 page assertions are back on schema v8, plus the v5 System page, the one-line
+ * "Do this now" (overview.action), workers().delegation and quota pace per side; /api/delegation and
+ * /api/usage are 404. Next: none. Blockers: none.
  * Confidence: synthetic DB built by the real collector; every page and guard exercised. */
 'use strict';
+require('./ontology-setup');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -43,7 +47,7 @@ test('every page returns JSON from a collector-built DB without private text', a
   const server = await listen({ db: env.LINE_HUB_DB, idleMs: 60000 });
   done(t, server, env);
   const port = server.address().port;
-  for (const page of ['overview', 'supervisor', 'workers', 'cost', 'productivity', 'harness', 'trace']) {
+  for (const page of ['overview', 'supervisor', 'workers', 'models', 'cost', 'productivity', 'harness', 'gates', 'system', 'trace']) {
     for (const days of [1, 14, 90, 7777]) {
       const r = await get(port, `/api/${page}?days=${days}`);
       assert.equal(r.status, 200, `${page} ${days}: ${r.body}`);
@@ -55,10 +59,46 @@ test('every page returns JSON from a collector-built DB without private text', a
       assert.equal(r.headers['x-content-type-options'], 'nosniff');
     }
   }
+  // H6b Models: every key found in the range can be picked; an unknown or hostile key is picked null with 200.
+  const models = JSON.parse((await get(port, '/api/models?days=90')).body).data;
+  assert.ok(models.models.length >= 1, 'the fixture has at least one model');
+  assert.equal(models.picked, null);
+  for (const m of models.models) {
+    const r = await get(port, `/api/models?days=90&model=${encodeURIComponent(m.key)}`);
+    assert.equal(r.status, 200, `${m.key}: ${r.body}`);
+    assert.ok(!r.body.includes(f.MARKER), `models/${m.key} leaks private text`);
+    assert.equal(JSON.parse(r.body).data.picked?.key, m.key);
+  }
+  for (const k of ['nope', "x' OR 1=1 --", '%E0%A4%A']) {
+    const r = await get(port, `/api/models?days=14&model=${k.startsWith('%') ? k : encodeURIComponent(k)}`);
+    assert.equal(r.status, 200, k); assert.equal(JSON.parse(r.body).data.picked, null, k);
+  }
+  // v5-only pages are gone; delegation lives under workers().delegation.
+  for (const old of ['delegation', 'usage']) assert.equal((await get(port, `/api/${old}?days=7`)).status, 404, old);
   const overview = JSON.parse((await get(port, '/api/overview?days=14')).body).data;
   assert.equal(overview.chart.days.length, 14);
   assert.equal(overview.chart.claude.length, 14);
   assert.ok(overview.chart.claude.reduce((a, b) => a + b, 0) > 0, 'synthetic Claude output is charted');
+  assert.equal(overview.tiles, undefined, 'the v5 KPI tile row is gone');
+  const a = overview.action;
+  assert.ok(['ok', 'warn', 'bad'].includes(a.level) && typeof a.text === 'string' && typeof a.action === 'string');
+  assert.equal(typeof overview.stale, 'boolean');
+  const data = async page => JSON.parse((await get(port, `/api/${page}?days=14`)).body).data;
+  const d = (await data('workers')).delegation;
+  assert.deepEqual(d.byTierWorker.map(x => x.days), [7, 30]);
+  assert.deepEqual(d.ratios.map(x => x.days), [7, 14, 30]);
+  assert.deepEqual(d.resumeBySize.map(x => x.bucket), ['<= 8 KB', '8-16 KB', '> 16 KB', 'n/a']);
+  assert.deepEqual(d.tokensByOrigin.map(x => x.origin), ['dispatcher', 'subagent', 'other']);
+  assert.equal(typeof d.perTask.withRuns, 'number');
+  const s = await data('system');
+  assert.equal(s.sample, null, 'no sampler data in the fixture'); assert.deepEqual(s.folders, []); assert.deepEqual(s.kills, []);
+  assert.ok(Array.isArray(s.hooks) && s.hooks.length >= 1 && s.hooks.every(h => 'timeoutMs' in h && typeof h.over === 'boolean'));
+  const p = await data('productivity');
+  assert.equal(p.split.supervisorPct, undefined, 'the 30 / 70 target is retired');
+  assert.deepEqual(p.pace.sides.map(x => x.key), ['claude7', 'claude5', 'codex']);
+  assert.ok(p.pace.sides.every(x => x.history.length === 14));
+  const tr = await data('trace');
+  assert.ok(tr.sessions.flatMap(x => x.runs).every(r => 'same_session_as' in r && 'codex_root' in r), 'trace runs carry run tokens (v7)');
 });
 
 // UI v3: every new field has the shape the web pages read.
@@ -148,11 +188,11 @@ test('quota forecast: linear fit, 100% crossing, too few points, expired period'
   const week = store.intern('window', 'primary'), five = store.intern('window', 'five_hour'), seven = store.intern('window', 'seven_day');
   store.begin();
   // codex: 10% per hour for 5 h (10..50 %), resets in 10 h -> fit hits 100% 5 h after the last point.
-  for (let i = 0; i < 5; i++) store.run('INSERT INTO quota_snapshots VALUES (?,?,?,?,?)', now - (4 - i) * H, codex, week, 10 + i * 10, now + 10 * H);
+  for (let i = 0; i < 5; i++) store.run('INSERT INTO quota_snapshots (ts,source,window,used_pct,resets_at) VALUES (?,?,?,?,?)', now - (4 - i) * H, codex, week, 10 + i * 10, now + 10 * H);
   // an older period with another resets_at must be ignored
-  store.run('INSERT INTO quota_snapshots VALUES (?,?,?,?,?)', now - 50 * H, codex, week, 99, now - 20 * H);
-  store.run('INSERT INTO quota_snapshots VALUES (?,?,?,?,?)', now, claude, five, 20, now + 2 * H); // one point
-  store.run('INSERT INTO quota_snapshots VALUES (?,?,?,?,?)', now - 10 * H, claude, seven, 40, now - H); // expired
+  store.run('INSERT INTO quota_snapshots (ts,source,window,used_pct,resets_at) VALUES (?,?,?,?,?)', now - 50 * H, codex, week, 99, now - 20 * H);
+  store.run('INSERT INTO quota_snapshots (ts,source,window,used_pct,resets_at) VALUES (?,?,?,?,?)', now, claude, five, 20, now + 2 * H); // one point
+  store.run('INSERT INTO quota_snapshots (ts,source,window,used_pct,resets_at) VALUES (?,?,?,?,?)', now - 10 * H, claude, seven, 40, now - H); // expired
   store.commit();
   const list = forecast(store.db, now);
   const c = list.find(f => f.source === 'codex');
@@ -169,7 +209,7 @@ test('quota forecast: linear fit, 100% crossing, too few points, expired period'
   const store2 = new Store(path.join(root, 'hub2.db'));
   const c2 = store2.intern('source', 'codex'), w2 = store2.intern('window', 'primary');
   store2.begin();
-  for (let i = 0; i < 5; i++) store2.run('INSERT INTO quota_snapshots VALUES (?,?,?,?,?)', now - (4 - i) * H, c2, w2, 10 + i * 10, later + 10 * H);
+  for (let i = 0; i < 5; i++) store2.run('INSERT INTO quota_snapshots (ts,source,window,used_pct,resets_at) VALUES (?,?,?,?,?)', now - (4 - i) * H, c2, w2, 10 + i * 10, later + 10 * H);
   store2.run("INSERT OR REPLACE INTO meta VALUES ('last_run_end', ?)", String(later - 600)); // collector ran 10 min ago
   store2.commit();
   const p = forecast(store2.db, later)[0];
@@ -180,7 +220,7 @@ test('quota forecast: linear fit, 100% crossing, too few points, expired period'
   const st = forecast(store2.db, later)[0];
   // Already at 100%: reported as "at 100% now", not as a projection.
   store2.begin();
-  store2.run('INSERT INTO quota_snapshots VALUES (?,?,?,?,?)', later - 60, c2, w2, 100, later + 10 * H);
+  store2.run('INSERT INTO quota_snapshots (ts,source,window,used_pct,resets_at) VALUES (?,?,?,?,?)', later - 60, c2, w2, 100, later + 10 * H);
   store2.commit();
   const full = forecast(store2.db, later)[0];
   store2.close();
@@ -279,16 +319,38 @@ test('latest quota is one pass, fast on a large table, and a ts tie keeps the hi
   const src = store.intern('source', 'codex'), win = store.intern('window', 'primary');
   const now = Math.floor(Date.now() / 1000);
   store.begin();
-  for (let i = 0; i < 10000; i++) store.run('INSERT INTO quota_snapshots VALUES (?,?,?,?,?)', now - 10000 + i, src, win, (i % 100) + i / 1e6, now + 86400);
-  store.run('INSERT INTO quota_snapshots VALUES (?,?,?,?,?)', now, src, win, 41, now + 86400);
-  store.run('INSERT INTO quota_snapshots VALUES (?,?,?,?,?)', now, src, win, 58, now + 86400);
+  for (let i = 0; i < 10000; i++) store.run('INSERT INTO quota_snapshots (ts,source,window,used_pct,resets_at) VALUES (?,?,?,?,?)', now - 10000 + i, src, win, (i % 100) + i / 1e6, now + 86400);
+  store.run('INSERT INTO quota_snapshots (ts,source,window,used_pct,resets_at) VALUES (?,?,?,?,?)', now, src, win, 41, now + 86400);
+  store.run('INSERT INTO quota_snapshots (ts,source,window,used_pct,resets_at) VALUES (?,?,?,?,?)', now, src, win, 58, now + 86400);
   store.commit();
   const t0 = Date.now();
   const overview = pages.overview(store.db, range(14, now));
   assert.ok(Date.now() - t0 < 1000, `overview took ${Date.now() - t0} ms`);
   assert.equal(overview.quota.length, 1); assert.equal(overview.quota[0].used_pct, 58);
+  assert.equal(overview.quota[0].pace, Math.round(58 / (6 / 7 * 100) * 100) / 100, 'pace = 58 % used / 6 of 7 days gone');
+  assert.equal(overview.quota[0].name, 'Codex 7-day', 'the name comes from quotaName(), not a fixed map');
   const cost = pages.cost(store.db, range(14, now));
   assert.ok(cost.quotaLine.length <= 2, 'quota line is aggregated per day');
+});
+
+// Kept from v5, adapted to the v6 pages: delegation is read from workers().delegation.
+test('an empty (schema-only) DB answers with nulls and "All clear", never invented numbers', t => {
+  const { Store } = require('../collector/db');
+  const { pages } = require('../server/queries');
+  const base = path.resolve(__dirname, '..', '.tmp'); fs.mkdirSync(base, { recursive: true });
+  const root = fs.mkdtempSync(path.join(base, 'server-empty-'));
+  const store = new Store(path.join(root, 'hub.db'));
+  t.after(() => { store.close(); fs.rmSync(root, { recursive: true, force: true }); });
+  const o = pages.overview(store.db, range(14));
+  assert.deepEqual(o.quota, []);
+  assert.equal(o.action.rule, null); assert.equal(o.action.text, 'All clear.'); assert.equal(o.action.action, 'No live quota window.');
+  const d = pages.workers(store.db, range(14)).delegation;
+  assert.ok(d.ratios.every(x => x.tasks === 0 && x.runsPerTask === null && x.stopPct === null));
+  assert.equal(d.perTask.withRuns, 0); assert.ok(d.resumeBySize.every(x => x.runs === 0 && x.ratePct === null));
+  assert.equal(pages.system(store.db, range(14)).sample, null);
+  assert.deepEqual(pages.cost(store.db, range(14)).quota, []);
+  const p = pages.productivity(store.db, range(14)).pace;
+  assert.ok(p.sides.every(x => x.missing && x.pace === null && x.history.every(v => v === null)));
 });
 
 test('invalid port and idle env values fall back to defaults', () => {

@@ -1,6 +1,6 @@
 ---
 name: review-gate
-description: "Review Gate decided by Line 2026-09-07: implementer never grades itself; Standard tier = codex-review.ps1 (gates + fresh `codex review` by gpt-6-astra, Codex tokens only); Important adds a Fable 5.1 subagent; Critical adds Line's written approval"
+description: "Review Gate decided by Line 2026-09-07: implementer never grades itself; Standard tier = codex-review.ps1 (gates + fresh `codex review` by gpt-6-astra, Codex tokens only); Important adds a Fable subagent (Fable 5.2 at Critical since 2026-11-14); Critical adds Line's written approval"
 metadata:
   type: feedback
 ---

@@ -64,5 +64,5 @@ tools — no writes). Related: [[codex-claude-ecosystem]].
 
 ## Update 2026-09-08 (context feedback loop, Line approved)
 - Statusline writes `%TEMP%\ultrathink-status\ctx-<session_id>.json` = `{pct, ts, model}` on every render.
-- New hook `~/.claude/hooks/context-guard.ps1` (UserPromptSubmit, wired in settings.json after the delegation reminder) reads it and injects `[CONTEXT nn% - CHECKPOINT | OFFER HANDOFF | HANDOFF MANDATORY]` at 60/70/80. Silent below 60 or if the cache is older than 15 min. Test override: `ULTRATHINK_CTX_OVERRIDE=<file>`. Self-test: `~/.claude/bin/tests/context-guard-selftest.ps1` (hook under 300 ms).
+- New hook `~/.claude/hooks/context-guard.ps1` (UserPromptSubmit, wired in settings.json after the delegation reminder) reads it and injects `[CONTEXT nn% - CHECKPOINT | OFFER HANDOFF | HANDOFF MANDATORY]` at 85 (60/70/80 until 2026-11-15). Silent below 60 or if the cache is older than 15 min. Test override: `ULTRATHINK_CTX_OVERRIDE=<file>`. Self-test: `~/.claude/bin/tests/context-guard-selftest.ps1` (hook under 300 ms).
 - Why: Claude cannot see its own context percentage; this session was auto-compacted once mid-task before the hook existed.

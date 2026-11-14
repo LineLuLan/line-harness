@@ -5,6 +5,7 @@
  * labels come from the server's local day list (week starts work the same way).
  * yMax (fixed 0..yMax, used by 100% stacked charts) and kind 'points' (markers, no line).
  * Hover tips: uPlot plugin + global `title` handler share one fixed tip at the pointer (installTips).
+ * v6: optional dash per series (reference lines) and xLabel (hour keys on the burn charts).
  * Next: none. Confidence: browser check. */
 import { h } from 'preact';
 import { useEffect, useRef } from 'preact/hooks';
@@ -106,7 +107,7 @@ export function installTips() {
 }
 
 // uPlot plugin: day label, then one row per visible series (swatch, label, the series' own raw value).
-const tipPlugin = (days, rows) => {
+const tipPlugin = (days, rows, xLabel) => {
   let over = null;
   const off = u => () => hideTip(u);
   return { hooks: {
@@ -117,11 +118,11 @@ const tipPlugin = (days, rows) => {
       const r = over.getBoundingClientRect();
       showTip(u, el => {
         const head = el.appendChild(document.createElement('div'));
-        head.className = 'tip-head'; head.textContent = dayLabel(days[idx]);
+        head.className = 'tip-head'; head.textContent = xLabel(days[idx]);
         rows.forEach((s, i) => {
           if (!u.series[i + 1]?.show) return;
           const row = el.appendChild(document.createElement('div')), sw = document.createElement('i'), lab = document.createElement('span'), val = document.createElement('b');
-          row.className = 'tip-row'; sw.style.background = s.color; lab.textContent = s.label; val.textContent = s.fmt ? s.fmt(s.data[idx]) : fmt(s.data[idx]);
+          row.className = 'tip-row'; sw.style.background = s.color; lab.textContent = s.label; val.textContent = s.fmt ? s.fmt(s.data[idx], idx) : fmt(s.data[idx]);
           row.append(sw, lab, val);
         });
       }, r.left + left, r.top + top);
@@ -130,8 +131,9 @@ const tipPlugin = (days, rows) => {
   } };
 };
 
-/* series: [{ label, data, color, kind: 'line' | 'bar' | 'points', scale?: 'y' | 'y2', fmt? }] */
-export function Chart({ days, series, height = 230, y2 = null, stacked = false, yMax = null }) {
+/* series: [{ label, data, color, kind: 'line' | 'bar' | 'points', scale?: 'y' | 'y2', fmt?(value, index), dash? }]
+ * xLabel: x key -> label (default dd/mm from YYYY-MM-DD; v6 burn charts pass hour keys). */
+export function Chart({ days, series, height = 230, y2 = null, stacked = false, yMax = null, xLabel = dayLabel }) {
   const box = useRef(null), plot = useRef(null);
   useEffect(() => {
     if (!box.current) return;
@@ -151,26 +153,26 @@ export function Chart({ days, series, height = 230, y2 = null, stacked = false, 
       padding: [8, 8, 0, 0],
       cursor: { points: { size: 7 }, drag: { x: false, y: false } },
       legend: { live: false }, // swatch + label only; the hover tip shows the values
-      plugins: [tipPlugin(days, order.map(k => series[k]))],
+      plugins: [tipPlugin(days, order.map(k => series[k]), xLabel)],
       // Fixed x range from the day list: uPlot widens a one-point range to 0..100 otherwise (24h view).
       scales: { x: { time: false, range: () => [-0.6, days.length - 1 + 0.6] }, y: { range: (u, min, max) => [0, yMax ?? Math.max(1, max) * 1.08] },
         ...(y2 ? { y2: { range: (u, min, max) => [0, Math.max(1, max) * 1.08] } } : {}) },
       axes: [
         { stroke: COLORS.muted, grid: { show: false }, ticks: { stroke: COLORS.line }, space: 46, font: AXIS_FONT,
-          values: (u, splits) => splits.map(i => (Number.isInteger(i) ? dayLabel(days[i]) : '')) },
+          values: (u, splits) => splits.map(i => (Number.isInteger(i) ? xLabel(days[i]) : '')) },
         { stroke: COLORS.muted, grid: { stroke: COLORS.line, width: 1 }, ticks: { show: false }, size: 52, space: 40, incrs: INCRS, font: AXIS_FONT, values: (u, splits) => splits.map(axisFmt) },
         ...(y2 ? [{ scale: 'y2', side: 1, stroke: COLORS.muted, grid: { show: false }, ticks: { show: false }, size: 48, incrs: INCRS, font: AXIS_FONT,
           values: (u, splits) => splits.map(v => (y2.fmt ? y2.fmt(v) : fmt(v, 0))) }] : [])
       ],
       series: [
-        { label: 'Day', value: (u, i) => (i === null ? '' : dayLabel(days[i])) },
+        { label: 'Day', value: (u, i) => (i === null ? '' : xLabel(days[i])) },
         ...order.map(k => {
           const s = series[k];
-          const base = { label: s.label, scale: s.scale || 'y', stroke: s.color, width: 2,
+          const base = { label: s.label, scale: s.scale || 'y', stroke: s.color, width: 2, ...(s.dash ? { dash: [6, 4] } : {}),
             value: (u, v, si, idx) => {
               if (idx === null || idx === undefined) return '–';
               const raw = s.data[idx];
-              return s.fmt ? s.fmt(raw) : fmt(raw);
+              return s.fmt ? s.fmt(raw, idx) : fmt(raw);
             } };
           if (s.kind === 'bar') return { ...base, paths: paired ? pair[barKeys.indexOf(k)] : bars, fill: alpha(s.color, stacked ? 0.85 : 0.55), width: 0, points: { show: false } };
           if (s.kind === 'points') return { ...base, paths: () => null, points: { show: true, size: 7, fill: s.color, stroke: s.color } };
@@ -203,6 +205,6 @@ export function Chart({ days, series, height = 230, y2 = null, stacked = false, 
     const ro = new ResizeObserver(fit);
     ro.observe(box.current);
     return () => { ro.disconnect(); plot.current?.destroy(); plot.current = null; };
-  }, [days, series, height, stacked, yMax]);
+  }, [days, series, height, stacked, yMax, xLabel]);
   return html`<div class="chart" ref=${box} style=${`min-height:${height + 36}px`}></div>`;
 }

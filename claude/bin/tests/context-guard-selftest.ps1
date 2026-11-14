@@ -1,7 +1,8 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-$hook = Join-Path $root 'context-guard.ps1'
-$statusline = Join-Path $root 'statusline-ultrathink.js'
+$claudeDir = Split-Path -Parent $root
+$hook = Join-Path $claudeDir 'hooks\context-guard.ps1'
+$statusline = Join-Path $claudeDir 'statusline-ultrathink.js'
 $fixtureRoot = Join-Path $env:TEMP ('context-guard-selftest-' + [guid]::NewGuid().ToString('N'))
 $savedOverride = $env:ULTRATHINK_CTX_OVERRIDE
 $savedTemp = $env:TEMP
@@ -30,16 +31,9 @@ try {
     $env:ULTRATHINK_CTX_OVERRIDE = $fixture
     $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
     $cases = @(
-        @{ Pct = 45; Expected = '' },
-        @{ Pct = 59; Expected = '' },
-        @{ Pct = 60; Expected = '[CONTEXT 60% - CHECKPOINT] Write progress notes (memory or handoff) before the next large step.' },
-        @{ Pct = 65; Expected = '[CONTEXT 65% - CHECKPOINT] Write progress notes (memory or handoff) before the next large step.' },
-        @{ Pct = 69; Expected = '[CONTEXT 69% - CHECKPOINT] Write progress notes (memory or handoff) before the next large step.' },
-        @{ Pct = 70; Expected = '[CONTEXT 70% - OFFER HANDOFF] Offer /handoff to Line before starting any major task. Prefer subagents for exploration.' },
-        @{ Pct = 75; Expected = '[CONTEXT 75% - OFFER HANDOFF] Offer /handoff to Line before starting any major task. Prefer subagents for exploration.' },
-        @{ Pct = 79; Expected = '[CONTEXT 79% - OFFER HANDOFF] Offer /handoff to Line before starting any major task. Prefer subagents for exploration.' },
-        @{ Pct = 80; Expected = '[CONTEXT 80% - HANDOFF MANDATORY] Run /handoff now and do not start new work in this session (CLAUDE.md Context Thresholds).' },
-        @{ Pct = 85; Expected = '[CONTEXT 85% - HANDOFF MANDATORY] Run /handoff now and do not start new work in this session (CLAUDE.md Context Thresholds).' }
+        @{ Pct = 45; Expected = '' },         @{ Pct = 59; Expected = '' },         @{ Pct = 60; Expected = '' },         @{ Pct = 79; Expected = '' },         @{ Pct = 84; Expected = '' },
+        @{ Pct = 85; Expected = '[CONTEXT 85%] Update the newest .handoff file now (silently, no question to Line), then continue the task. Do not ask Line to /clear; compaction handles context.' },
+        @{ Pct = 92; Expected = '[CONTEXT 92%] Update the newest .handoff file now (silently, no question to Line), then continue the task. Do not ask Line to /clear; compaction handles context.' }
     )
     foreach ($case in $cases) {
         @{ pct = $case.Pct; ts = $now; model = 'Selftest' } | ConvertTo-Json -Compress | Set-Content -LiteralPath $fixture -Encoding UTF8
@@ -69,7 +63,7 @@ os.homedir = () => __dirname;
 require('child_process').spawn = () => ({ unref() {} });
 '@ | Set-Content -LiteralPath $preload -Encoding ASCII
     $sessionId = 't1-selftest-' + [guid]::NewGuid().ToString('N')
-    $sample = @{ session_id = $sessionId; model = @{ display_name = 'Claude Selftest' }; context_window = @{ used_percentage = 75 }; cwd = $fixtureRoot }
+    $sample = @{ session_id = $sessionId; model = @{ display_name = 'Claude Selftest' }; context_window = @{ used_percentage = 92 }; cwd = $fixtureRoot }
     $rendered = @($sample | ConvertTo-Json -Compress | & node --require $preload $statusline)
     Assert-True ($LASTEXITCODE -eq 0) 'statusline exit 0'
     Assert-True ($rendered.Count -eq 4) 'statusline renders four lines'

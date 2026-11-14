@@ -6,6 +6,7 @@
 #>
 param([switch]$LocalOnly)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'fixtures\dispatch-packet.ps1')
 $bin = Split-Path -Parent $PSScriptRoot
 $dispatcher = Join-Path $bin 'codex-do.ps1'
 $tempRoot = [IO.Path]::GetFullPath($env:TEMP).TrimEnd([char[]]@('\', '/'))
@@ -24,6 +25,8 @@ function Write-TestFile([string]$Path, [string]$Content) {
   [IO.File]::WriteAllText($Path, $Content, $utf8)
 }
 function Invoke-TestRun([string[]]$Arguments) {
+  $Arguments = @(ConvertTo-SelftestDispatchArguments -Arguments $Arguments -Folder $fixture)
+  if (-not ($Arguments | Where-Object { $_ -in @('-Status','-Attach','-Cancel') })) { $Arguments = @('-NoRamCheck') + $Arguments }
   # PS 5.1 turns native stderr lines into ErrorRecords; under 'Stop' the -Attached path (stderr
   # passes straight through) would throw. Collect them as text instead (supervisor, 2026-10-09).
   $prevPref = $ErrorActionPreference
@@ -54,10 +57,11 @@ function Wait-Until([scriptblock]$Condition, [string]$Name, [int]$Seconds = 15) 
   }
 }
 function Start-TestRun([string]$Text, [string]$Name) {
+  $Text = New-SelftestPacket $Text
   $spec = Join-Path $fixture "$Name.txt"
   $output = Join-Path $fixture "$Name.out"
   Write-TestFile $spec $Text
-  $arguments = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -Dir "{1}" -SpecFile "{2}"' -f $dispatcher, $workDir, $spec
+  $arguments = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -NoRamCheck -Dir "{1}" -SpecFile "{2}"' -f $dispatcher, $workDir, $spec
   if ($PSVersionTable.PSVersion.Major -le 5) {
     $processPath = [Environment]::GetEnvironmentVariable('Path', 'Process')
     [Environment]::SetEnvironmentVariable('PATH', $null, 'Process')
@@ -282,10 +286,10 @@ setTimeout(() => {
     return
   }
   $spec = Join-Path $fixture 'packet.txt'
-  $promptText = "  literal %PATH% and a `"double quote`"`nsecond line EXIT=0`n"
+  $promptText = New-SelftestPacket "  literal %PATH% and a `"double quote`"`nsecond line EXIT=0`n"
   Write-TestFile $spec $promptText
   $result = Invoke-TestRun @('-Dir', $workDir, '-SpecFile', $spec)
-  Assert-True ($result.Code -eq 0) 'R2 R3 detached exit 0'
+  Assert-True ($result.Code -eq 0) ("R2 R3 detached exit 0 (actual {0}): {1}" -f $result.Code, $result.Text)
   Assert-True ($result.Text.Contains('fake first line') -and $result.Text.Contains('fake stderr line') -and $result.Text.Contains('fake last line')) 'R3 stdout and stderr tailed'
   Assert-True (([regex]::Matches($result.Text, 'fake first line')).Count -eq 1) 'R3 output not repeated'
   Assert-True ($result.Text.Contains("session: $uuid")) 'R3 session matches Dir'
@@ -537,7 +541,7 @@ setTimeout(() => {
   $pinned = Invoke-TestRun @('-Attach', $orphan.Run.Id)
   Assert-True (-not (Test-Path -LiteralPath (Join-Path $orphan.Run.Folder 'session.txt')) -or $pinned.Text.Contains('session:')) 'session pin read path works'
   $result = Invoke-TestRun @('-Attached', '-Dir', $workDir, 'attached inline')
-  Assert-True ($result.Code -eq 0 -and (Read-Record).stdin -ceq '' -and (Read-Record).args[-1] -ceq 'attached inline') 'R1 Attached preserves inline prompt'
+  Assert-True ($result.Code -eq 0 -and (Read-Record).stdin -ceq (New-SelftestPacket 'attached inline').Trim()) 'R1 Attached preserves packet prompt'
   Assert-Disabled (Read-Record) $false 'R7 Attached defaults to no disable flags'
   $result = Invoke-TestRun @('-Attached', '-NoSubAgents', '-Dir', $workDir, 'attached restricted')
   Assert-True ($result.Code -eq 0) 'R7 Attached NoSubAgents run succeeds'
@@ -588,7 +592,7 @@ setTimeout(() => {
     [IO.File]::ReadAllText((Join-Path $fixture 'record.json')) -ceq $recordBefore) 'F5 fresh empty lock refused without launch'
   [IO.File]::SetLastWriteTimeUtc($lockPath, [DateTime]::UtcNow.AddMinutes(-2))
   $result = Invoke-TestRun @('-Dir', $workDir, 'old empty lock')
-  Assert-True ($result.Code -eq 0 -and (Read-Record).stdin -ceq 'old empty lock' -and
+  Assert-True ($result.Code -eq 0 -and (Read-Record).stdin -ceq (New-SelftestPacket 'old empty lock') -and
     -not (Test-Path -LiteralPath $lockPath)) 'F5 two-minute-old empty lock reclaimed'
   foreach ($file in @($dispatcher, $PSCommandPath, (Join-Path $PSScriptRoot 'codex-do-resume-selftest.ps1'))) {
     $bytes = [IO.File]::ReadAllBytes($file)

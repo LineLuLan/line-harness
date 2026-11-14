@@ -2,6 +2,7 @@
  * Status: byte/cursor regressions and obsolete lock-file compatibility. Next: extend only for observed failures.
  * Blockers: none. Confidence: deterministic fixtures and injected budget clock. */
 'use strict';
+require('./ontology-setup');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

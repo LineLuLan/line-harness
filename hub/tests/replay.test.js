@@ -3,11 +3,12 @@
  * Blockers: none. Confidence: prefix loss, size-keeping rewrites (v4 head fingerprint),
  * duplicate slices, rollback and migration. */
 'use strict';
+require('./ontology-setup');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { Store } = require('../collector/db');
+const { Store, SCHEMA_VERSION } = require('../collector/db');
 const { ingest } = require('../collector/stream');
 const { hash } = require('../collector/values');
 const { acquire } = require('../collector/lock');
@@ -116,7 +117,7 @@ test('v2 automatically rebuilds state logs once, resumes migration and preserves
     assert.equal(typeof release, 'function');
     store = new Store(database);
     const token = store.get('SELECT token FROM lease').token;
-    assert.equal(store.meta('schema_version'), '6');
+    assert.equal(store.meta('schema_version'), String(SCHEMA_VERSION));
     assert.equal(store.get('SELECT COUNT(*) n FROM claude_messages').n, 1);
     for (const item of items) {
       assert.equal(store.get(`SELECT COUNT(*) n FROM ${item.table}`).n, 0);

@@ -12,13 +12,15 @@
   Exit 73 means neither sandbox works; exit 72 means captured output reports a sandbox failure.
   Attached output is not captured. Detached completion plays three sounds and a Windows
   toast from the wrapper itself; CODEX_DO_NOTIFY=0 suppresses both, retaining notify.log.
+  Completion invariant: out.log is final once exit.txt is published. Later telemetry
+  writes only to its own files, so attach can safely stop reading at exit publication.
   The wrapper forwards PATH and these caller variables when set: HTTPS_PROXY, HTTP_PROXY,
   NO_PROXY, OPENAI_BASE_URL, NODE_OPTIONS, NODE_EXTRA_CA_CERTS, CODEX_ACC_MAIN_HOME,
   CODEX_ACC_ROOT, CODEX_DO_NOTIFY. Other caller variables are not inherited by WMI.
 
   Thin wrapper around `codex exec`, LEAN MODE: runs with --ignore-user-config so the MCP
   servers in ~/.codex/config.toml never spawn (measured 2026-08-01: 48.7s -> 12.6s for the
-  same task â€” MCP startup was pure waste for delegations, which use shell+repo, not MCP).
+  same task - MCP startup was pure waste for delegations, which use shell+repo, not MCP).
   Because config is ignored, model/effort/tier are ALWAYS passed explicitly:
   -m <Model, default gpt-6-sol> -c model_reasoning_effort=high -c service_tier=priority (Fast tier).
 
@@ -81,10 +83,10 @@
   with AllowSubAgents. Detached mode disables both features by default.
 
 .EXAMPLE
-  codex-do.ps1 -Dir D:\01_Workspaces\creditminer "Add a /health endpoint returning {status:'ok'} and a test for it"
+  codex-do.ps1 -Dir D:\01_Workspaces\creditminer -SpecFile .\health-packet.md
 
 .EXAMPLE
-  codex-do.ps1 -Sandbox read-only "Summarize how auth middleware is wired in this repo"
+  codex-do.ps1 -Sandbox read-only -SpecFile .\review-packet.md
 #>
 [CmdletBinding()]
 param(
@@ -104,6 +106,8 @@ param(
   [ValidateRange(1, 2147483647)][int]$Hours = 24,
   [switch]$AllowSubAgents,
   [switch]$NoSubAgents,
+  [switch]$AllowLarge,
+  [switch]$NoRamCheck,
   [ValidateSet('','low','medium','high','xhigh','max','ultra')]
   [string]$Effort = '',            # explicit reasoning effort; wins over -Fast (Line 2026-09-19: Terra ultra for exploration, Astra xhigh for super-hard)
   [string]$Model = 'gpt-6-sol',     # Line 2026-09-28: Sol for Skip + Standard-A; pass -Model gpt-6-astra for Standard-B, Important, Critical; gpt-6-luna for exploration tier 1
@@ -112,6 +116,24 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'packet-lint.ps1')
+. (Join-Path $PSScriptRoot 'ram-preflight.ps1')
+
+function Get-DispatchPacket {
+  param([string]$Text, [switch]$Status, [switch]$Attach, [switch]$Cancel, [switch]$Resume, [switch]$AllowLarge, [switch]$AllowSubAgents)
+  $result = [pscustomobject]@{ ExitCode=0; Text=$Text; Errors=@(); Warnings=@() }
+  if ($Status -or $Attach -or $Cancel) { return $result }
+  if (-not $Resume) {
+    $lint = Test-Packet -Text $Text -AllowLarge:$AllowLarge
+    $result.Errors = $lint.errors; $result.Warnings = $lint.warnings
+    if (-not $lint.ok) { $result.ExitCode = 74; return $result }
+  }
+  if (-not $AllowSubAgents -and -not [string]::IsNullOrWhiteSpace($Text) -and $Text -notmatch '(?i)Do not spawn sub-agents\.') {
+    $result.Text += "`nCONSTRAINTS: Do not spawn sub-agents."
+  }
+  return $result
+}
+
 if ($Status -and @($PSBoundParameters.Keys | Where-Object { $_ -notin @('Status', 'Hours', 'Verbose', 'Debug', 'ErrorAction', 'WarningAction', 'InformationAction', 'ErrorVariable', 'WarningVariable', 'InformationVariable', 'OutVariable', 'OutBuffer', 'PipelineVariable') }).Count -gt 0) {
   Write-Host 'codex-do: usage error: -Status is mutually exclusive with dispatch, -Attach, and -Cancel.'
   exit 64
@@ -126,6 +148,26 @@ if ($Resume -and $Resume -cne 'last' -and $Resume -notmatch '\A[0-9a-f]{8}-[0-9a
   Write-Host "codex-do: -Resume must be 'last' or a session UUID"
   exit 64
 }
+# Lint before account discovery or sandbox probes: rejected packets start no Codex process.
+# -SpecFile keeps multi-line packets out of command-line quoting and leaves the source intact.
+$promptText = @($Prompt) -join ' '
+$specFullPath = $null; $specSha256 = $null
+if ($SpecFile -and -not ($Status -or $Attach -or $Cancel)) {
+  if (-not (Test-Path -LiteralPath $SpecFile)) { throw "SpecFile not found: $SpecFile" }
+  $specFullPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($SpecFile)
+  $specBytes = [IO.File]::ReadAllBytes($specFullPath)
+  # run.json records the spec hash so ledger-add.ps1 -SpecFile can link ledger lines to runs.
+  $specHasher = [Security.Cryptography.SHA256]::Create()
+  try { $specSha256 = -join ($specHasher.ComputeHash($specBytes) | ForEach-Object { $_.ToString('x2') }) } finally { $specHasher.Dispose() }
+  $promptText = [IO.File]::ReadAllText($specFullPath, [Text.Encoding]::UTF8)
+}
+$packet = Get-DispatchPacket -Text $promptText -Status:$Status -Attach:([bool]$Attach) -Cancel:([bool]$Cancel) -Resume:([bool]$Resume) -AllowLarge:$AllowLarge -AllowSubAgents:$AllowSubAgents
+foreach ($message in $packet.Warnings) { Write-Warning "codex-do: $message" }
+if ($packet.ExitCode) {
+  foreach ($message in $packet.Errors) { Write-Host "codex-do: $message" }
+  exit $packet.ExitCode
+}
+$promptText = $packet.Text
 . (Join-Path $PSScriptRoot 'codex-acc-lib.ps1')
 . (Join-Path $PSScriptRoot 'codex-sandbox-lib.ps1')
 $stateDir = if ($env:CODEX_DO_STATE_DIR) { [IO.Path]::GetFullPath($env:CODEX_DO_STATE_DIR) } else { Join-Path $env:USERPROFILE '.claude\state' }
@@ -173,20 +215,43 @@ try {
   # Reconnection and cancellation remain available after an account home is removed.
   $accountHome = $null
 }
-$promptText = @($Prompt) -join ' '
 if ($Attached) { $promptText = $promptText.Trim() }
-# -SpecFile: pass long/multi-line specs by PATH, never as a command-line argument.
-# Embedded quotes/JSON in an argument mangle powershell.exe parsing (verified 2026-08-09:
-# a spec containing a JSON sample killed the run before the first echo).
-if ($SpecFile) {
-  if (-not (Test-Path -LiteralPath $SpecFile)) { throw "SpecFile not found: $SpecFile" }
-  if ($Attached) { $promptText = (Get-Content -Raw -LiteralPath $SpecFile).Trim() }
-  else { $promptText = [IO.File]::ReadAllText([IO.Path]::GetFullPath($SpecFile), [Text.Encoding]::UTF8) }
-}
 if (-not ($Status -or $Attach -or $Cancel) -and [string]::IsNullOrWhiteSpace($promptText)) {
   throw "No task prompt provided. Usage: codex-do.ps1 [-Dir <path>] [-Sandbox <mode>] [-Fast] [-SpecFile <f>] [-OutFile <f>] '<task>'"
 }
 
+# Intent: preserve Line's model choice across resumes instead of silently using dispatch defaults.
+# Status: newest matching durable run supplies only omitted flags. Next: supervisor WMI validation.
+# Blockers: none for Attached fixtures. Confidence: UUID, last, defaults and override regressions.
+if ($Resume -and -not ($Attach -or $Cancel)) {
+  $priorRun = $null
+  $priorRunId = $null
+  $resumeDir = [IO.Path]::GetFullPath($Dir).TrimEnd([char[]]@('\', '/'))
+  # Creation time distinguishes runs launched in the same second; metadata writes do not reorder them.
+  foreach ($folder in @(Get-ChildItem -LiteralPath $runsDir -Directory -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name -cmatch '\A\d{8}-\d{6}-[0-9a-f]{4}\z' } | Sort-Object CreationTimeUtc, Name -Descending)) {
+    try {
+      $candidate = Read-CodexRunMetadata -Folder $folder.FullName
+      if (-not $candidate.model -or $candidate.effort -notin @('low', 'medium', 'high', 'xhigh', 'max', 'ultra')) { continue }
+      if ($Resume -ceq 'last') {
+        if (-not $candidate.dir -or [IO.Path]::GetFullPath([string]$candidate.dir).TrimEnd([char[]]@('\', '/')) -ine $resumeDir) { continue }
+      } else {
+        $sessionPath = Join-Path $folder.FullName 'session.txt'
+        if ([IO.File]::ReadAllText($sessionPath).Trim() -ine $Resume) { continue }
+      }
+      $priorRun = $candidate
+      $priorRunId = $folder.Name
+      break
+    } catch {} # Missing/partially written metadata cannot prevent a resume with defaults.
+  }
+  if ($null -ne $priorRun) {
+    if (-not $PSBoundParameters.ContainsKey('Model')) { $Model = [string]$priorRun.model }
+    if (-not $PSBoundParameters.ContainsKey('Effort')) { $Effort = [string]$priorRun.effort }
+    if (-not $PSBoundParameters.ContainsKey('Model') -or -not $PSBoundParameters.ContainsKey('Effort')) {
+      Write-Host "resume: inheriting model $($priorRun.model) effort $($priorRun.effort) from run $priorRunId"
+    }
+  } else { Write-Host 'resume: no prior run found; using defaults' }
+}
 $codexModel = $Model
 $codexEffort = if ($Effort) { $Effort } elseif ($Fast) { 'medium' } else { 'high' }
 if (-not $Attached) { $Dir = [IO.Path]::GetFullPath($Dir) }
@@ -746,6 +811,42 @@ function Stop-DetachedRun {
   else { Write-Host "stopped PIDs: $($stopped -join ', ')" }
 }
 
+function Get-DispatchRollouts {
+  param([string]$AccountHome)
+  Get-ChildItem -LiteralPath (Join-Path $AccountHome 'sessions') -Filter 'rollout-*.jsonl' -File -Recurse -ErrorAction Stop
+}
+function Get-DispatchSessionMeta {
+  param([string]$Path)
+  # Forked rollouts can repeat parent metadata later; only the first line owns the file.
+  $meta = Get-Content -LiteralPath $Path -TotalCount 1 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+  if ($meta.type -ceq 'session_meta') { return $meta.payload }
+}
+function Get-DispatchParentId {
+  param($Meta)
+  if ($Meta.parent_thread_id) { return [string]$Meta.parent_thread_id }
+  if ($Meta.source.subagent.thread_spawn.parent_thread_id) { return [string]$Meta.source.subagent.thread_spawn.parent_thread_id }
+}
+function Write-DispatchSubagents {
+  param([string]$AccountHome, [string]$Session, [string]$RunFolder)
+  if (-not $RunFolder -or $Session -eq 'unknown' -or -not (Test-Path -LiteralPath (Join-Path $RunFolder 'exit.txt'))) { return }
+  try {
+    $count = 0
+    foreach ($rollout in @(Get-DispatchRollouts -AccountHome $AccountHome)) {
+      try { $meta = Get-DispatchSessionMeta -Path $rollout.FullName } catch { continue }
+      if ((Get-DispatchParentId -Meta $meta) -eq $Session) { $count++ }
+    }
+    [IO.File]::WriteAllText((Join-Path $RunFolder 'subagents.txt'), [string]$count, (New-Object Text.UTF8Encoding($false)))
+    if ($count -gt 0) { Write-Host "codex-do: spawned $count sub-agent threads" }
+  } catch {} # Telemetry must not turn a successful run into an error.
+}
+function New-DispatchCompletionScript {
+  $lines = @('param([string]$RunFolder)', '$ErrorActionPreference = ''Stop''')
+  foreach ($name in @('Get-DispatchRollouts','Get-DispatchSessionMeta','Get-DispatchParentId','Write-DispatchSubagents','Write-DispatchSession')) {
+    $lines += 'function {0} {{ {1} }}' -f $name, (Get-Command $name -CommandType Function).Definition
+  }
+  $lines += 'try { $run = Get-Content -Raw -LiteralPath (Join-Path $RunFolder ''run.json'') | ConvertFrom-Json; Write-DispatchSession -Dir $run.dir -AccountHome $run.accountHome -Resume $run.resume -RunStarted ([datetime]$run.startedUtc) -RunFolder $RunFolder } catch {}'
+  return ($lines -join "`n")
+}
 function Write-DispatchSession {
   param([string]$Dir, [string]$AccountHome, [string]$Resume, [datetime]$RunStarted, [string]$RunFolder = '')
 
@@ -753,7 +854,9 @@ function Write-DispatchSession {
   # older run never reports a newer run's session from the same Dir.
   $pinned = if ($RunFolder) { Join-Path $RunFolder 'session.txt' } else { $null }
   if ($pinned -and (Test-Path -LiteralPath $pinned)) {
-    Write-Host "session: $(([IO.File]::ReadAllText($pinned)).Trim())"
+    $session = ([IO.File]::ReadAllText($pinned)).Trim()
+    Write-Host "session: $session"
+    Write-DispatchSubagents -AccountHome $AccountHome -Session $session -RunFolder $RunFolder
     return
   }
   # Intent: expose the worker transcript ID from the resolved account home for follow-up packets.
@@ -766,17 +869,18 @@ function Write-DispatchSession {
     } else {
       # Concurrent workers share the sessions folder (verified 2026-10-01: newest-file picked another
       # worker's run). Match only rollouts whose session_meta cwd equals this run's -Dir.
-      $sessionsDir = Join-Path $accountHome 'sessions'
       $cutoff = $runStarted.AddSeconds(-2)
       $wantDir = [IO.Path]::GetFullPath($Dir).TrimEnd('\')
-      $latest = Get-ChildItem -LiteralPath $sessionsDir -Filter 'rollout-*.jsonl' -File -Recurse -ErrorAction Stop |
+      $latest = Get-DispatchRollouts -AccountHome $AccountHome |
         Where-Object { $_.LastWriteTime -ge $cutoff } |
         Sort-Object LastWriteTime -Descending |
         Where-Object {
           $meta = $null
-          try { $meta = (Get-Content -LiteralPath $_.FullName -TotalCount 1) | ConvertFrom-Json } catch {}
-          $null -ne $meta -and $null -ne $meta.payload -and $meta.payload.cwd -and
-            ([IO.Path]::GetFullPath([string]$meta.payload.cwd).TrimEnd('\') -ieq $wantDir)
+          try { $meta = Get-DispatchSessionMeta -Path $_.FullName } catch {}
+          # Preserve live's case-sensitive user-source filter and legacy fallback.
+          $null -ne $meta -and $meta.cwd -and
+            ($meta.thread_source -ceq 'user' -or ($null -eq $meta.PSObject.Properties['thread_source'] -and -not (Get-DispatchParentId -Meta $meta))) -and
+            ([IO.Path]::GetFullPath([string]$meta.cwd).TrimEnd('\') -ieq $wantDir)
         } |
         Select-Object -First 1
       if ($null -ne $latest -and $latest.BaseName -match '([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\z') {
@@ -788,6 +892,7 @@ function Write-DispatchSession {
     try { [IO.File]::WriteAllText($pinned, $session, (New-Object Text.UTF8Encoding($false))) } catch {}
   }
   Write-Host "session: $session"
+  Write-DispatchSubagents -AccountHome $AccountHome -Session $session -RunFolder $RunFolder
 }
 
 if ($Status) {
@@ -845,6 +950,9 @@ if ($Status) {
 }
 
 if (-not ($Attach -or $Cancel)) {
+  # Intent: report RAM without blocking Line's sessions. Status: unreachable exit 75 removed.
+  # Next: supervisor host check. Blockers: none. Confidence: false-result and skip fixtures.
+  if (-not $NoRamCheck) { [void](Wait-FreeRam -MinGB 1.5 -TimeoutMin 10) }
   # Intent: prove shell availability before spending a model call.
   # Status: one selection per dispatch, shared by exec and resume.
   # Next: supervisor live validation. Blockers: none. Confidence: fixture coverage.
@@ -892,7 +1000,7 @@ if ($Attach -or $Cancel) {
   Write-DispatchSession -Dir $Dir -AccountHome $accountHome -Resume $Resume -RunStarted ([datetime]$run.startedUtc) -RunFolder $runFolder
   exit $exitCode
 }
-if (-not $Attached) { $runId = (Get-Date -Format 'yyyyMMdd-HHmmss-') + [guid]::NewGuid().ToString('N').Substring(0, 4) }
+$runId = (Get-Date -Format 'yyyyMMdd-HHmmss-') + [guid]::NewGuid().ToString('N').Substring(0, 4)
 
 $lockRetries = 0
 while (-not $ownsDispatchLock) {
@@ -981,6 +1089,11 @@ if (-not $Attached) {
     $outputPath = Join-Path $runFolder 'out.log'
     $exitPath = Join-Path $runFolder 'exit.txt'
     $wrapperPath = Join-Path $runFolder 'run.cmd'
+    # Intent: record child-thread telemetry even if the observing dispatcher dies.
+    # Status: wrapper publishes exit.txt before running best-effort telemetry.
+    # Next: supervisor detached smoke test. Blockers: none. Confidence: synthetic rollouts.
+    $completionPath = Join-Path $runFolder 'complete.ps1'
+    [IO.File]::WriteAllText($completionPath, (New-DispatchCompletionScript), $utf8NoBom)
     [IO.File]::WriteAllText($stdinPath, $promptText, $utf8NoBom)
     [IO.File]::WriteAllText($outputPath, '', $utf8NoBom)
     if ($Resume) { $cargs += '-' } else { $cargs += 'Execute the full task specification provided on stdin.' }
@@ -995,6 +1108,7 @@ if (-not $Attached) {
     $wrapper += 'call "{0}" {1} < "{2}" > "{3}" 2>&1' -f $codexBin, $nativeArguments, $stdinPath, $outputPath
     $wrapper += '> "{0}.tmp" echo %ERRORLEVEL%' -f $exitPath
     $wrapper += 'move /y "{0}.tmp" "{0}" >nul' -f $exitPath
+    $wrapper += '"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "{0}" -RunFolder "{1}" > "{2}" 2>&1' -f $completionPath, $runFolder, (Join-Path $runFolder 'telemetry.log')
     # Intent: notify Line even when the observer has been terminated.
     # Status: notice follows durable exit publication and cannot change exit.txt.
     # Next: desktop smoke test. Blockers: none. Confidence: fixture log assertions.
@@ -1008,9 +1122,11 @@ if (-not $Attached) {
     $run = [ordered]@{
       runId = $runId; dir = [IO.Path]::GetFullPath($Dir); model = $codexModel
       effort = $codexEffort; account = $accountName; resume = $Resume
+      accountHome = $accountHome
       sandboxMode = $selection.Mode
       startedUtc = $runStarted.ToUniversalTime().ToString('o'); wrapperPid = 0
       wrapperCreationDate = $null
+      specFile = $specFullPath; specSha256 = $specSha256
     }
     [IO.File]::WriteAllText((Join-Path $runFolder 'run.json'), ($run | ConvertTo-Json), $utf8NoBom)
     try {
@@ -1057,7 +1173,7 @@ if (-not $Attached) {
       Remove-OwnedDispatchLock -Path $dispatchLockFile -RunId $runId
     }
     if ($createdRunFolder -and $null -eq $childPid) {
-      foreach ($name in @('stdin.txt', 'out.log', 'run.cmd', 'run.json')) {
+      foreach ($name in @('stdin.txt', 'out.log', 'run.cmd', 'run.json', 'complete.ps1')) {
         Remove-Item -LiteralPath (Join-Path $runFolder $name) -Force -ErrorAction SilentlyContinue
       }
       # Non-recursive: remove only this newly created folder, and only if empty.
@@ -1073,6 +1189,8 @@ try {
   # 2026-08-06: multi-line specs silently arrived as their first line only). Multi-line
   # prompts therefore go through stdin, which `codex exec` appends to the prompt.
   $isMultiLine = $promptText -match "`r?`n"
+  $runFolder = Join-Path $runsDir $runId
+  if (-not (Test-Path -LiteralPath $runFolder -PathType Container)) { $runFolder = '' }
   if ($Resume) {
     $cargs += '-'
     Write-Host "-> $codexBin $($cargs -join ' ')  [resume prompt via stdin, $($promptText.Length) chars]" -ForegroundColor DarkGray
@@ -1147,5 +1265,6 @@ try {
     Remove-OwnedDispatchLock -Path $dispatchLockFile -StartedUtc $dispatchStartedUtc
   }
 }
-Write-DispatchSession -Dir $Dir -AccountHome $accountHome -Resume $Resume -RunStarted $runStarted
+if ($runFolder) { [IO.File]::WriteAllText((Join-Path $runFolder 'exit.txt'), [string]$exitCode, (New-Object Text.UTF8Encoding($false))) }
+Write-DispatchSession -Dir $Dir -AccountHome $accountHome -Resume $Resume -RunStarted $runStarted -RunFolder $runFolder
 exit $exitCode

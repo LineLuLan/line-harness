@@ -1,0 +1,6 @@
+{
+  "model": { "display_name": "Claude fixture" },
+  "session_id": "quota-pace-fixture",
+  "context_window": { "used_percentage": 25 },
+  "cost": { "total_cost_usd": 0 }
+}

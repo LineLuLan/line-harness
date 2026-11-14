@@ -87,8 +87,20 @@ function summarizeRuns(stateDir, nowMs, isAlive = pidAlive) {
   return summary;
 }
 
+// Intent: show quota burn relative to elapsed time using only existing usage inputs.
+// Status: fixture-covered. Next: supervisor installs. Blockers: none. Confidence: high.
+function weeklyPace(usedPercent, resetsAt, nowMs = Date.now()) {
+  if (typeof usedPercent !== 'number' || !Number.isFinite(usedPercent) || usedPercent < 0 || usedPercent > 100) return null;
+  const resetMs = typeof resetsAt === 'number' ? resetsAt * 1000
+    : typeof resetsAt === 'string' && resetsAt.trim() ? Date.parse(resetsAt) : NaN;
+  const weekMs = 7 * 24 * 60 * 60_000;
+  const elapsedMs = weekMs - (resetMs - nowMs);
+  if (!Number.isFinite(elapsedMs) || elapsedMs < weekMs * 0.05 || elapsedMs >= weekMs) return null;
+  return usedPercent / (100 * elapsedMs / weekMs);
+}
+
 if (require.main !== module) {
-  module.exports = { codexHome, summarizeRuns };
+  module.exports = { codexHome, summarizeRuns, weeklyPace };
   return;
 }
 
@@ -252,7 +264,7 @@ function refreshCodexUsage() {
     for (const w of [hit.rl.primary, hit.rl.secondary]) {
       if (!w || w.used_percent == null) continue;
       const slot = w.window_minutes === 300 ? 'fiveH' : w.window_minutes === 10080 ? 'weekly' : null;
-      if (slot) out[slot] = { left: Math.max(0, Math.round(100 - w.used_percent)), resetsAt: w.resets_at || null };
+      if (slot) out[slot] = { left: Math.max(0, Math.round(100 - w.used_percent)), usedPercent: w.used_percent, resetsAt: w.resets_at || null };
     }
     fs.writeFileSync(CODEX_CACHE, JSON.stringify(out));
     return;
@@ -295,6 +307,20 @@ const LAVENDER = c(141), PEACH = c(216), SKY = c(117), MINT = c(121),
   CLOUD = c(253), STEEL = c(110);
 const SEP = ` ${SLATE}·${RESET} `;
 const gauge = left => (left > 50 ? MINT : left > 20 ? AMBER : CORAL);
+/* Intent: use the ontology's pace colours, with a safe local fallback for missing/invalid input.
+ * Status: complete. Next: install after review. Blockers: none. Confidence: real renderer fixture. */
+function paceThresholds() {
+  try {
+    const file = process.env.ULTRATHINK_ONTOLOGY !== undefined ? process.env.ULTRATHINK_ONTOLOGY
+      : path.join(process.env.USERPROFILE || HOME, '.claude/ontology/harness.ontology.json');
+    const thresholds = JSON.parse(fs.readFileSync(file, 'utf8')).quota?.thresholds;
+    if (Number.isFinite(thresholds?.codexPace1) && Number.isFinite(thresholds?.codexPace2)) return thresholds;
+  } catch { /* The statusline still renders when the ontology is absent or invalid. */ }
+  return { codexPace1: 1.0, codexPace2: 1.3 };
+}
+const PACE = paceThresholds();
+const paceLabel = pace => pace == null ? ''
+  : ` ${pace > PACE.codexPace2 ? CORAL : pace > PACE.codexPace1 ? AMBER : SAGE}pace ${pace.toFixed(1)}x${RESET}`;
 
 // bar of what's LEFT: full = plenty remaining
 function bar(left, width = 10) {
@@ -310,11 +336,13 @@ if (!fresh(USAGE_CACHE, 60_000) || !fresh(CODEX_CACHE, 60_000) || !fresh(OR_CACH
 }
 
 let claude5hLeft = null, claudeWkLeft = null;
+let claudeWkPace = null;
 let claudeScopedWeekly = null;
 try {
   const u = JSON.parse(fs.readFileSync(USAGE_CACHE, 'utf8'));
   if (u.five_hour && u.five_hour.utilization != null) claude5hLeft = Math.max(0, 100 - Math.floor(u.five_hour.utilization));
   if (u.seven_day && u.seven_day.utilization != null) claudeWkLeft = Math.max(0, 100 - Math.floor(u.seven_day.utilization));
+  if (u.seven_day) claudeWkPace = weeklyPace(u.seven_day.utilization, u.seven_day.resets_at);
   const scoped = Array.isArray(u.limits) && u.limits.find(limit =>
     limit && limit.kind === 'weekly_scoped' && limit.scope && limit.scope.model && limit.scope.model.display_name);
   if (scoped && typeof scoped.percent === 'number' && Number.isFinite(scoped.percent)) {
@@ -479,7 +507,7 @@ l1 += `${SEP}${CLOUD}$${cost}${RESET}`;
 // === Line 2: claude account + 5h/weekly bars ===
 let l2 = `  ${BOLD}${LAVENDER}⚡${RESET} ${PEACH}claude${RESET} ${CLOUD}${acc.claude || 'not logged in'}${RESET}`;
 if (claude5hLeft != null) l2 += `${SEP}${SLATE}5h${RESET} ${bar(claude5hLeft)}`;
-if (claudeWkLeft != null) l2 += `${SEP}${SLATE}wk${RESET} ${bar(claudeWkLeft)}`;
+if (claudeWkLeft != null) l2 += `${SEP}${SLATE}wk${RESET} ${bar(claudeWkLeft)}${paceLabel(claudeWkPace)}`;
 if (claudeScopedWeekly) l2 += `${SEP}${SLATE}${claudeScopedWeekly.label} wk${RESET} ${bar(claudeScopedWeekly.left)}`;
 
 // === Line 3: codex account + model + weekly (and 5h when the CLI writes it) ===
@@ -497,6 +525,9 @@ if (codexUsage && (codexUsage.fiveH || codexUsage.weekly)) {
   if (codexUsage.fiveH) part += `${SEP}${SLATE}5h${RESET} ${bar(codexUsage.fiveH.left)}`;
   if (codexUsage.weekly) {
     part += `${SEP}${SLATE}wk${RESET} ${bar(codexUsage.weekly.left)}`;
+    const weekly = codexUsage.weekly;
+    const used = weekly.usedPercent ?? (typeof weekly.left === 'number' ? 100 - weekly.left : null);
+    part += paceLabel(weeklyPace(used, weekly.resetsAt));
     const r = fmtReset(codexUsage.weekly.resetsAt);
     if (r) part += ` ${SLATE}↻ ${r}${RESET}`;
   }

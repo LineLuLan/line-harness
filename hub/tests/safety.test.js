@@ -2,6 +2,7 @@
  * Status: deterministic acceptance regressions with SQLite leases. Next: supervisor independent review.
  * Blockers: none. Confidence: tests use private synthetic scratch directories only. */
 'use strict';
+require('./ontology-setup');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

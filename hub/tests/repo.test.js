@@ -2,11 +2,12 @@
  * Status: synthetic contract. Next: none. Blockers: none.
  * Confidence: temp git trees, Claude + Codex fixtures, migration on a real collector DB. */
 'use strict';
+require('./ontology-setup');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { Store } = require('../collector/db');
+const { Store, SCHEMA_VERSION } = require('../collector/db');
 const { ingest } = require('../collector/stream');
 const { repoOf, repoFromUrl } = require('../collector/repo');
 const f = require('./fixtures/synthetic');
@@ -134,7 +135,7 @@ test('v4 -> v5 replays every source once: projects are refreshed, counts are unc
     store.run('UPDATE claude_sessions SET project=?, branch=NULL', store.intern('project', 'datasets'));
     store.setMeta('schema_version', '4');
     store.close(); store = new Store(database);
-    assert.equal(store.meta('schema_version'), '6');
+    assert.equal(store.meta('schema_version'), String(SCHEMA_VERSION));
     const cursor = store.get('SELECT offset, size FROM ingest_state');
     assert.equal(cursor.offset, 0); assert.equal(cursor.size, -1);
     await ingest(store, { file, kind: 'claude', stat: fs.statSync(file) }, () => false);

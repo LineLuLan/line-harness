@@ -1,51 +1,42 @@
-{
-  "mcpServers": {
-    "neon": {
-      "type": "http",
-      "url": "https://mcp.neon.tech/mcp"
-    },
-    "context7": {
-      "type": "stdio",
-      "command": "cmd",
-      "args": [
-        "/c",
-        "npx.cmd",
-        "-y",
-        "@upstash/context7-mcp@latest"
-      ],
-      "env": {}
-    },
-    "codegraph": {
-      "type": "stdio",
-      "command": "cmd",
-      "args": [
-        "/c",
-        "npx.cmd",
-        "-y",
-        "@colbymchenry/codegraph",
-        "serve",
-        "--mcp"
-      ],
-      "env": {}
-    },
-    "langfuse": {
-      "type": "stdio",
-      "command": "powershell",
-      "args": [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        "C:\\Users\\ADMIN\\.claude\\bin\\langfuse-mcp-launch.ps1"
-      ],
-      "env": {}
-    },
-    "github": {
-      "type": "http",
-      "url": "https://api.githubcopilot.com/mcp/",
-      "headers": {
-        "Authorization": "Bearer ${GITHUB_PAT_TOKEN}"
-      }
-    }
-  }
+﻿{
+    "mcpServers":  {
+                       "neon":  {
+                                    "type":  "http",
+                                    "url":  "https://mcp.neon.tech/mcp"
+                                },
+                       "context7":  {
+                                        "type":  "stdio",
+                                        "command":  "cmd",
+                                        "args":  [
+                                                     "/c",
+                                                     "npx.cmd",
+                                                     "-y",
+                                                     "@upstash/context7-mcp@latest"
+                                                 ],
+                                        "env":  {
+
+                                                }
+                                    },
+                       "langfuse":  {
+                                        "type":  "stdio",
+                                        "command":  "powershell",
+                                        "args":  [
+                                                     "-NoProfile",
+                                                     "-ExecutionPolicy",
+                                                     "Bypass",
+                                                     "-File",
+                                                     "C:\\Users\\ADMIN\\.claude\\bin\\langfuse-mcp-launch.ps1"
+                                                 ],
+                                        "env":  {
+
+                                                }
+                                    },
+                       "github":  {
+                                      "type":  "http",
+                                      "url":  "https://api.githubcopilot.com/mcp/",
+                                      "headers":  {
+                                                      "Authorization":  "Bearer ${GITHUB_PAT_TOKEN}"
+                                                  }
+                                  }
+                   }
 }

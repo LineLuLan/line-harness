@@ -2,6 +2,7 @@
  * Status: executable acceptance contract including quiet lease skips. Next: expand for new source versions.
  * Blockers: none. Confidence: high on covered synthetic shapes. */
 'use strict';
+require('./ontology-setup');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -55,7 +56,8 @@ test('all source shapes, normalization, dedupe, privacy and MAX across runs', t 
     const ledger = row(db, 'ledger');
     assert.equal(ledger.l1_count, 2); assert.equal(ledger.l2_count, null);
     assert.equal(ledger.l2_raw, 'PASS'); assert.equal(ledger.note, 'gpt-first then | claude-last');
-    assert.equal(db.prepare('SELECT name FROM names WHERE id=?').get(ledger.model).name, 'claude-last');
+    // v7: with no "(worker x)" phrase the FIRST model named in the note wins (the implementer is named first).
+    assert.equal(db.prepare('SELECT name FROM names WHERE id=?').get(ledger.model).name, 'gpt-first');
     const review = row(db, 'reviews');
     assert.deepEqual([review.p0, review.p1, review.p2, review.p3], [1, 2, 0, 1]);
     assert.equal(row(db, 'daily_tokens').messages, 1);

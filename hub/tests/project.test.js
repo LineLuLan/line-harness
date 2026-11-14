@@ -2,6 +2,7 @@
  * Status: amendment r1 field allowlists checked against all synthetic source shapes.
  * Next: supervisor review. Blockers: none. Confidence: output parity and bad JSON cases. */
 'use strict';
+require('./ontology-setup');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -97,5 +98,26 @@ test('large human prompts normalize BOM/CRLF for occurrence identities and keep 
     assert.equal(store.get('SELECT turns FROM claude_sessions').turns, 1);
     store.exec('PRAGMA wal_checkpoint(TRUNCATE)');
     assert.equal(fs.readFileSync(path.join(root, 'human.db')).includes(Buffer.from(f.MARKER)), false);
+  } finally { store.close(); }
+});
+
+/* Intent: retain review mode on the >=64 KiB ingestion path. Status: regression.
+ * Next: none. Blockers: none. Confidence: actual ingest, both gates-only shapes. */
+test('large review ingestion preserves mode and excludes gates-only records', async t => {
+  const root = setup(t), store = new Store(':memory:');
+  try {
+    const file = f.jsonl(path.join(root, 'reviews.jsonl'), [
+      { model: 'gpt-6-astra', effort: 'high', mode: 'gates-only' },
+      { model: null, effort: null, mode: 'gates-only' },
+      { model: 'gpt-6-astra', effort: 'high', mode: 'model' }
+    ].map(row => ({ ...row, utc: f.timestamp, verdict: 'PASS', ignoredPadding: 'x'.repeat(70000) })));
+    let projections = 0;
+    await ingest(store, { file, kind: 'review', stat: fs.statSync(file) }, () => false,
+      { sample: stage => { if (stage === 'line_projected') projections++; } });
+    assert.equal(projections, 3);
+    assert.deepEqual(store.all('SELECT mode FROM reviews ORDER BY rowid').map(x => x.mode), ['gates-only', 'gates-only', 'model']);
+    const q = require('../server/queries'), d = q.gates(store.db, q.range(14));
+    assert.equal(d.gatesOnlyRuns, 2); assert.equal(d.reviewers.length, 1);
+    assert.equal(d.reviewers[0].reviews, 1); assert.equal(d.reviewers[0].mode, 'model');
   } finally { store.close(); }
 });

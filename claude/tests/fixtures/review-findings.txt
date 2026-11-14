@@ -1,0 +1,11 @@
+- [P0] Critical failure at sample.ps1:1
+- [P1] First issue at sample.ps1:2
+P1: Second issue at sample.ps1:3
+**P1** Third issue at sample.ps1:4
+Severity: P1 Fourth issue at sample.ps1:5
+- P2 - Fifth issue at sample.ps1:6
+P3 (minor) Sixth issue at sample.ps1:7
+- [P1] Severity: P1 **P1** one finding at sample.ps1:8
+Nothing to report on this line.
+P10 is not a priority.
+VERDICT: FAIL

@@ -1,0 +1,881 @@
+diff --git a/claude/CLAUDE.md b/claude/CLAUDE.md
+index 89b3f81..d970fe8 100644
+--- a/claude/CLAUDE.md
++++ b/claude/CLAUDE.md
+@@ -28,13 +28,15 @@ Two paths; pick by task shape:
+    Multi-turn (2026-10-01): every codex-do run prints `session: <uuid>`. `-Resume <uuid>` (or `-Resume last`) continues that worker session with its transcript (`codex exec resume`; same model, effort, sandbox, account). Resume ONLY to continue the same packet: answer a STOP RULE blocker or fix after a review FAIL. A new packet always starts a fresh session; reviewers are always fresh sessions; after 3 resumes of one session start fresh (context rot).
+    Detached by default (2026-10-10): codex-do launches the worker through WMI (outside Claude Code's process tree) with a run folder `~/.claude/state/runs/<runId>` (stdin, out.log, exit.txt, run.json, tree.json, session.txt). If the background task running codex-do is stopped (Esc, session end, low memory), the worker keeps running: reconnect with `-Attach <runId|last>`, stop it with `-Cancel <runId|last>` (exact-PID tree from tree.json only). The Dir lock refuses a second dispatch while that run's tree lives and prints both commands. `-Attached` restores the old in-tree launch per call. Codex sub-agents are disabled by default (`--disable multi_agent --disable multi_agent_v2`) so sessions stay resumable; `-AllowSubAgents` re-enables them. Self-tests: `bin/tests/codex-do-detach-selftest.ps1` (97 assertions) and `codex-do-resume-selftest.ps1`; the worker sandbox blocks WMI, so the supervisor runs the detached test.
+    Reliability (2026-10-12): every dispatch and review first runs a 1-second sandbox preflight (`codex-sandbox-lib.ps1`): elevated, else unelevated (still blocks writes outside -C), else exit 73 without a model call. `-NoSandboxFallback` (or `CODEX_DO_NO_FALLBACK=1`) forbids the fallback: use it for Critical-tier work. A finished run whose output has codex's own timestamped router ERROR line for the sandbox exits 72 (review: UNKNOWN). Detached runs fire a Windows toast plus sound when they finish (`codex-run-notify.ps1`, log `~/.claude/state/runs/notify.log`). `codex-do.ps1 -Status [-Hours N]` lists runs as starting, running, STALE (no output 10 min), done, failed, DIED; the statusline shows running/stale/died counts. Root cause of the 2026-10-12 outage: the Codex desktop app locks its computer-use runtime; its autostart is disabled.
+-   Current docs (2026-10-12, Line): call context7 (resolve-library-id, then query-docs) before any answer, packet, or edit that depends on a library, SDK, framework, CLI, or external API. Every codex-do packet carries `DOCS CHECKED: <lib> <version> via context7 <date>` or `DOCS CHECKED: n/a - <reason>`; the PreToolUse hook `hooks/packet-docs-guard.ps1` denies a dispatch without it (-Status/-Attach/-Cancel/-Resume exempt). Scheduled task `MCP-Weekly-Update` (Mondays 09:00, headless) runs `bin/mcp-weekly-update.ps1`: bumps pinned MCP npm versions in `~/.codex/config.toml` (backup `config.toml.bak-mcpweekly-*`, keeps 4, validates with `codex mcp list`, restores on failure), log `~/.claude/state/mcp-weekly-update.log`, toast on change; codegraph's global install is report-only (`codegraph upgrade` with no Claude session open). Claude-side context7 runs `@latest`. codex-review disables every MCP server that has a `[mcp_servers.<name>]` table (plugin servers have none; overriding them breaks the config).
++   Current docs (2026-10-12, Line): call context7 (resolve-library-id, then query-docs) before any answer, packet, or edit that depends on a library, SDK, framework, CLI, or external API. Every codex-do packet carries `DOCS CHECKED: <lib> <version> via context7 <date>` or `DOCS CHECKED: n/a - <reason>`; `codex-do.ps1` lints the packet and denies a dispatch without it (-Status/-Attach/-Cancel/-Resume exempt). Scheduled task `MCP-Weekly-Update` (Mondays 09:00, headless) runs `bin/mcp-weekly-update.ps1`: bumps pinned MCP npm versions in `~/.codex/config.toml` (backup `config.toml.bak-mcpweekly-*`, keeps 4, validates with `codex mcp list`, restores on failure), log `~/.claude/state/mcp-weekly-update.log`, toast on change; codegraph's global install is report-only (`codegraph upgrade` with no Claude session open). Claude-side context7 runs `@latest`. codex-review disables every MCP server that has a `[mcp_servers.<name>]` table (plugin servers have none; overriding them breaks the config).
++   Packet and RAM gates: `codex-do.ps1` lints packets. Exit 74 means lint errors. Use `-AllowLarge` for packets over 8 KB. Exit 75 means not enough free RAM. `-NoRamCheck` skips the RAM check. Write the review ledger line with `bin/ledger-add.ps1`.
+    The worker writes only inside its `-Dir`. Any copy or install outside that boundary is the supervisor's step, after verification (verified 2026-08-09: a sandboxed worker cannot write to the home directory).
+ 2. Long or open-ended tasks — the official plugin:
+    Write every Windows path in a plugin prompt with forward slashes: the rescue forwarder strips backslashes (verified 2026-10-01: the .claude\bin path arrived as C:UsersADMIN.claudebin and the worker refused). `--resume` continues the last rescue thread with memory (verified 2026-10-01 on CLI 0.157.1).
+    `Agent(subagent_type: "codex:codex-rescue")` with background mode; poll `/codex:status <jobId>`; cancel with `/codex:cancel` only when `.job.updatedAt` is frozen for 5 or more minutes while running. `/codex:review` and `/codex:adversarial-review` for review passes.
+ 
+ Before printing a packet, run a packet check: compare SUCCESS CRITERIA and REQUIREMENTS against CONSTRAINTS, NON-GOALS, PATTERNS, and fixtures for any rule that contradicts another (shape caps, schema, fixture content), rewrite each conflict into one rule, confirm the template headings exist (a `SUCCESS CRITERIA:` block is required by codex-review.ps1; 2026-10-09 a packet titled REQUIREMENTS made layer 2 return UNKNOWN), and add a line `PACKET CHECK: ok` (2026-10-09: three worker STOPs in one day came from self-contradicting packets).
++Run `docs/packet-checklist.md` for Important/Critical packets and add `CHECKLIST: ok`. codex-do.ps1 denies Important/Critical packets without it.
+ Print the full task packet before every dispatch. Verify worker output against the packet checklist; never trust the self-report. Kill worker processes only by exact PID, never by name pattern (incident 2026-08-08: a name-pattern kill destroyed a running delegation).
+ 
+ Shell commands (2026-10-09): long or multi-line commands go through the PowerShell tool or a script file, never the Bash tool (Bash fails with `unexpected EOF` on long commands, also for Line's `!` commands; enforced 2026-10-12 by the PreToolUse hook bash-heredoc-guard.ps1, which denies Bash heredocs). Scheduled tasks must launch through `conhost.exe --headless`, or Windows Terminal opens a window. Claude Code kills the whole process tree of a background task when that task stops (Esc, session end, low memory; verified 2026-10-09 by experiment): never start a long-lived process with Start-Process from a background task; codex-do launches detached through WMI for that reason.
+@@ -62,6 +64,24 @@ xhigh policy - use `gpt-6-astra` xhigh ONLY for: (1) extremely dangerous work (s
+ 
+ Hard-work phase map (algorithm, debugging, integration, phase-by-phase owners): `D:\01_Workspaces\SKILLs-repository\CLAUDE.md`, section "Hard Work - Phase Map".
+ 
++## Route by quota pace
++
++Pace = used % / % of the window elapsed. The daily budget per side is 15% of the week. Over daily budget means today's burn is above 20%.
++
++Check pace at session start and before each Important packet. Use the statusline or Line Hub. These rules override normal model and review routing. Use the strictest rule that applies.
++
++| Codex quota | Route |
++| --- | --- |
++| Pace <= 1.0 and used < 70% | Use the normal routing table. |
++| Pace > 1.0 to 1.3, used 70-84%, or over daily budget | Send Standard-B with <= 3 files and a runnable VALIDATE to `gpt-6-sol` high. Do not use Luna for exploration. Use a Claude Explore subagent. Layer 2 = Fable subagent. |
++| Pace > 1.3 or used 85-94% | Use Codex only for Important/Critical. Send Standard work to an Opus subagent with the same packet. Do not resume. Fix the packet and start fresh. |
++| Used >= 95% | Do not use Codex. Opus subagent = worker. Fable subagent = layer 2. Write `worker=opus` in the ledger. |
++
++- Claude 7-day pace > 1.2 or used >= 70%: do not use Opus subagent workers. Layer 2 = Astra only. Use Fable only for Critical layer 3. Supervisor edits stay <= 20 lines.
++- Claude 5-hour used >= 80%: finish the current check, write `/handoff`, then stop.
++- Both sides used > 85%: send no new packets. Report to Line.
++- Codex desktop and CLI sessions count against the budget. If one session uses over 50M tokens, stop and report to Line.
++
+ ## Paid API Budget
+ 
+ OpenRouter credits (`OPENROUTER_API_KEY` in `.env.local`) pay for exactly one thing: runs of the model under test, `openai/gpt-6-luna` (classifier + chat in eval v3). Nothing else goes to OpenRouter: no judge panel, no labelling, no probe of another model, no "pilot". Judge panels (Opus 5.5, GPT-6 Astra, GPT-6 Sol, GPT-6.1 Sol) run on subscription quota as Claude CLI subagents (Agent tool, model opus) and Codex sessions (codex-do packets), as the 2026-10-08 panel did. "chạy" or "chạy pilot" never widens this; an exception exists only when Line names the model and the budget in the current conversation, and the command then carries `OPENROUTER_GUARD_OVERRIDE=1`. Enforced by the PreToolUse hook `hooks/openrouter-model-guard.ps1` (denies `label-judges.mjs` real runs, `run-panel.ps1`, and any OpenRouter command naming a non-Luna model id). Incident: 2026-10-25, a 40-row judge pilot sent to OpenRouter cost 0.94 USD from the wallet.
+@@ -74,7 +94,9 @@ The implementer never grades itself. Three layers, each of a different nature, a
+ 2. Model review in a fresh session: sees only the diff and the packet SUCCESS CRITERIA, answers PASS or FAIL with file:line evidence. Same model as the worker counts as a different context, not a different mind; it is the weakest layer.
+ 3. Supervisor verification (Fable, a different model and provider): compare the diff against EVERY SUCCESS CRITERIA line, re-run VALIDATE yourself, and execute the change at least once for real (run the script, hit the endpoint, render the page). Reading is not verification. This layer never gets skipped and never gets delegated back to Codex.
+ 
+-On FAIL the worker fixes and a NEW reviewer session runs; never reuse a reviewer session. After 3 FAILs stop and report to Line. The supervisor reads the verdict, holds the evidence, and decides to ship; no reviewer ships.
++Important packets get a pre-dispatch read by a Fable subagent. Give it the packet only and 5 minutes.
++
++On FAIL the worker fixes and a NEW reviewer session runs; never reuse a reviewer session. After 2 FAILs for Important/Critical, stop, report to Line, and redesign. Standard keeps the limit of 3 FAILs. The supervisor reads the verdict, holds the evidence, and decides to ship; no reviewer ships.
+ 
+ | Tier | Trigger | Reviewer | Command |
+ | --- | --- | --- | --- |
+@@ -85,7 +107,7 @@ On FAIL the worker fixes and a NEW reviewer session runs; never reuse a reviewer
+ 
+ `codex-review.ps1` runs the deterministic gates first (typecheck or lint when the repo defines them, secret and console.log scan of the diff), then `codex review` in a fresh session with the diff and the packet criteria embedded in the prompt (the CLI rejects scope flags together with a custom prompt); verdict = explicit VERDICT line, else any [P0]/[P1] finding = FAIL, else PASS. Reviewer instruction: report only gaps that affect correctness or the stated criteria; style is optional. Keep Fable quota for judgment work: Standard tier never spends Claude tokens.
+ 
+-Review ledger (decided 2026-09-08): after every delegated task append one line to `~/.claude/state/review-ledger.log`: `date|tier (Skip, Standard-A, Standard-B, Important, Critical)|layer2 ran? (yes/no)|defects found by L1|by L2|by L3|note (name the worker model)`. After 20 Standard-B entries compare defect counts against Standard-A to decide whether Astra earns its cost there. After 20 entries the supervisor reports the catch rate per layer to Line and the tier rules get adjusted by that data, not by feel.
++Review ledger (decided 2026-09-08): after every delegated task use `bin/ledger-add.ps1` to append one line to `~/.claude/state/review-ledger.log`: `date|tier (Skip, Standard-A, Standard-B, Important, Critical)|layer2 ran? (yes/no)|defects found by L1|by L2|by L3|note (name the worker model)`. After 20 Standard-B entries compare defect counts against Standard-A to decide whether Astra earns its cost there. After 20 entries the supervisor reports the catch rate per layer to Line and the tier rules get adjusted by that data, not by feel.
+ 
+ ## Context Thresholds
+ 
+diff --git a/claude/settings.json b/claude/settings.json
+index 0382522..5b12c4a 100644
+--- a/claude/settings.json
++++ b/claude/settings.json
+@@ -88,28 +88,8 @@
+         "hooks": [
+           {
+             "type": "command",
+-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\git-push-guard.ps1\"",
+-            "timeout": 10
+-          },
+-          {
+-            "type": "command",
+-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\packet-docs-guard.ps1\"",
+-            "timeout": 5
+-          },
+-          {
+-            "type": "command",
+-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\openrouter-model-guard.ps1\"",
+-            "timeout": 5
+-          }
+-        ]
+-      },
+-      {
+-        "matcher": "Bash",
+-        "hooks": [
+-          {
+-            "type": "command",
+-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\bash-heredoc-guard.ps1\"",
+-            "timeout": 5
++            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\shell-guards.ps1\"",
++            "timeout": 15
+           }
+         ]
+       }
+diff --git a/claude/statusline-ultrathink.js b/claude/statusline-ultrathink.js
+index cae16b3..ff0fc16 100644
+--- a/claude/statusline-ultrathink.js
++++ b/claude/statusline-ultrathink.js
+@@ -87,8 +87,20 @@ function summarizeRuns(stateDir, nowMs, isAlive = pidAlive) {
+   return summary;
+ }
+ 
++// Intent: show quota burn relative to elapsed time using only existing usage inputs.
++// Status: fixture-covered. Next: supervisor installs. Blockers: none. Confidence: high.
++function weeklyPace(usedPercent, resetsAt, nowMs = Date.now()) {
++  if (typeof usedPercent !== 'number' || !Number.isFinite(usedPercent) || usedPercent < 0 || usedPercent > 100) return null;
++  const resetMs = typeof resetsAt === 'number' ? resetsAt * 1000
++    : typeof resetsAt === 'string' && resetsAt.trim() ? Date.parse(resetsAt) : NaN;
++  const weekMs = 7 * 24 * 60 * 60_000;
++  const elapsedMs = weekMs - (resetMs - nowMs);
++  if (!Number.isFinite(elapsedMs) || elapsedMs <= 0 || elapsedMs >= weekMs) return null;
++  return usedPercent / (100 * elapsedMs / weekMs);
++}
++
+ if (require.main !== module) {
+-  module.exports = { codexHome, summarizeRuns };
++  module.exports = { codexHome, summarizeRuns, weeklyPace };
+   return;
+ }
+ 
+@@ -252,7 +264,7 @@ function refreshCodexUsage() {
+     for (const w of [hit.rl.primary, hit.rl.secondary]) {
+       if (!w || w.used_percent == null) continue;
+       const slot = w.window_minutes === 300 ? 'fiveH' : w.window_minutes === 10080 ? 'weekly' : null;
+-      if (slot) out[slot] = { left: Math.max(0, Math.round(100 - w.used_percent)), resetsAt: w.resets_at || null };
++      if (slot) out[slot] = { left: Math.max(0, Math.round(100 - w.used_percent)), usedPercent: w.used_percent, resetsAt: w.resets_at || null };
+     }
+     fs.writeFileSync(CODEX_CACHE, JSON.stringify(out));
+     return;
+@@ -295,6 +307,8 @@ const LAVENDER = c(141), PEACH = c(216), SKY = c(117), MINT = c(121),
+   CLOUD = c(253), STEEL = c(110);
+ const SEP = ` ${SLATE}·${RESET} `;
+ const gauge = left => (left > 50 ? MINT : left > 20 ? AMBER : CORAL);
++const paceLabel = pace => pace == null ? ''
++  : ` ${pace > 1.3 ? CORAL : pace > 1.0 ? AMBER : SAGE}pace ${pace.toFixed(1)}x${RESET}`;
+ 
+ // bar of what's LEFT: full = plenty remaining
+ function bar(left, width = 10) {
+@@ -310,11 +324,13 @@ if (!fresh(USAGE_CACHE, 60_000) || !fresh(CODEX_CACHE, 60_000) || !fresh(OR_CACH
+ }
+ 
+ let claude5hLeft = null, claudeWkLeft = null;
++let claudeWkPace = null;
+ let claudeScopedWeekly = null;
+ try {
+   const u = JSON.parse(fs.readFileSync(USAGE_CACHE, 'utf8'));
+   if (u.five_hour && u.five_hour.utilization != null) claude5hLeft = Math.max(0, 100 - Math.floor(u.five_hour.utilization));
+   if (u.seven_day && u.seven_day.utilization != null) claudeWkLeft = Math.max(0, 100 - Math.floor(u.seven_day.utilization));
++  if (u.seven_day) claudeWkPace = weeklyPace(u.seven_day.utilization, u.seven_day.resets_at);
+   const scoped = Array.isArray(u.limits) && u.limits.find(limit =>
+     limit && limit.kind === 'weekly_scoped' && limit.scope && limit.scope.model && limit.scope.model.display_name);
+   if (scoped && typeof scoped.percent === 'number' && Number.isFinite(scoped.percent)) {
+@@ -479,7 +495,7 @@ l1 += `${SEP}${CLOUD}$${cost}${RESET}`;
+ // === Line 2: claude account + 5h/weekly bars ===
+ let l2 = `  ${BOLD}${LAVENDER}⚡${RESET} ${PEACH}claude${RESET} ${CLOUD}${acc.claude || 'not logged in'}${RESET}`;
+ if (claude5hLeft != null) l2 += `${SEP}${SLATE}5h${RESET} ${bar(claude5hLeft)}`;
+-if (claudeWkLeft != null) l2 += `${SEP}${SLATE}wk${RESET} ${bar(claudeWkLeft)}`;
++if (claudeWkLeft != null) l2 += `${SEP}${SLATE}wk${RESET} ${bar(claudeWkLeft)}${paceLabel(claudeWkPace)}`;
+ if (claudeScopedWeekly) l2 += `${SEP}${SLATE}${claudeScopedWeekly.label} wk${RESET} ${bar(claudeScopedWeekly.left)}`;
+ 
+ // === Line 3: codex account + model + weekly (and 5h when the CLI writes it) ===
+@@ -497,6 +513,9 @@ if (codexUsage && (codexUsage.fiveH || codexUsage.weekly)) {
+   if (codexUsage.fiveH) part += `${SEP}${SLATE}5h${RESET} ${bar(codexUsage.fiveH.left)}`;
+   if (codexUsage.weekly) {
+     part += `${SEP}${SLATE}wk${RESET} ${bar(codexUsage.weekly.left)}`;
++    const weekly = codexUsage.weekly;
++    const used = weekly.usedPercent ?? (typeof weekly.left === 'number' ? 100 - weekly.left : null);
++    part += paceLabel(weeklyPace(used, weekly.resetsAt));
+     const r = fmtReset(codexUsage.weekly.resetsAt);
+     if (r) part += ` ${SLATE}↻ ${r}${RESET}`;
+   }
+diff --git a/claude/docs/packet-checklist.md b/claude/docs/packet-checklist.md
+new file mode 100644
+index 0000000..193e09f
+--- /dev/null
++++ b/claude/docs/packet-checklist.md
+@@ -0,0 +1,24 @@
++# Packet Checklist (Important and Critical)
++
++Packets stay under 8 KB; split bigger work.
++VALIDATE has at least one runnable command.
++
++Run this list before you dispatch an Important or Critical packet. Fix each gap in the packet, then add the line `CHECKLIST: ok`. The dispatch guard (`hooks/packet-docs-guard.ps1`) denies an Important or Critical packet without that line.
++
++Source: `~/.claude/state/review-ledger.log` (355 entries, 2026-09-07 to 2026-11-12) and `reviews.jsonl` (6 rows; the findings arrays are empty, so only the gate results count). Counts are keyword matches on the ledger notes: read them as a rank, not as exact numbers. Mined 2026-11-12. Re-mine after about 50 new ledger lines.
++
++1. check: no criterion contradicts another criterion, a CONSTRAINT, a fixture, or an existing test; every term has one meaning (seen 42 times, e.g. a fixed limit of 6 against a recorded value of 18; a fixture that implied 3 changed rows, not 2).
++2. check: VALIDATE runs inside the worker sandbox, or the packet says which steps the supervisor runs on the host (seen 20 times, e.g. vitest spawn EPERM, tsx ENOMEM, no network for a dependency download).
++3. check: the packet has STOP RULES plus a salvage note, and asks for a fresh session, not a resume, after a sub-agent thread (seen 20 times, e.g. the worker was killed by the low-memory reaper after it wrote all files; a resume failed on a sub-agent id).
++4. check: UI work names the widths to test (320, 400, 640, 1024, 1440) and says "no horizontal overflow, no clipped text" (seen 20 times, e.g. a header wrapped at 360-429 px; a table overflowed at 1440x900).
++5. check: docs work says "STE: short sentences, active voice, no non-STE words" and names the STE check (seen 20 times, e.g. two non-STE words in a README; a 27-word sentence in a decision record).
++6. check: the packet names the file encoding (UTF-8 without BOM, LF or the repo's line ending) when it touches non-ASCII text (seen 18 times, e.g. Vietnamese phrases turned to mojibake from the spec encoding; Set-Content added a BOM).
++7. check: docs that quote counts, file names, or rules are in FILES, so the worker updates them with the code (seen 14 times, e.g. a README count stayed at four after a fifth item; a README paragraph still contradicted the fix).
++8. check: every value comes from its source of truth (config, API, data), and every fallback is named; no silent default (seen 13 times, e.g. hard-coded methodology values in a report; a rule count used defaults, not clients).
++9. check: concurrency, cache, and ordering behaviour is stated, with a test for each (seen 13 times, e.g. cache poisoning during seeding; a heartbeat that used up the rate limit; a lock-file replace race).
++10. check: test fixtures use dummy values shorter than the secret-gate pattern and no console.log (seen 13 times, e.g. a dummy key of 8 or more characters tripped the secret gate; console.log in a test note).
++11. check: at least one criterion runs the real path (real stack, real data, or a real run), not only mocks or holds (seen 12 times, e.g. a step queried mock calls by name while the mock filed them by slug, and both holds used one value).
++12. check: VALIDATE runs the repo formatter, lint, and typecheck on the changed files (seen 11 times, e.g. unformatted files, an E501 line in a breadcrumb, pyright errors in a test).
++13. check: build and run steps name every required env var and tool (seen 9 times, e.g. a web build without NEXT_PUBLIC_API_URL; jq not on PATH in the worker shell; a stale .next cache).
++14. check: FILES and NON-GOALS fence the scope, and the packet says "do not rewrite lines outside the change" (seen 8 times, e.g. the worker rewrote 11 existing doc rows shorter; a container width changed from page width to 1440).
++15. check: PowerShell scripts target 5.1 traps: array unroll in ConvertFrom-Json and @(...), quoting of paths with spaces, $PSScriptRoot in param defaults (seen 7 times, e.g. @(Invoke-RestMethod) nested the JSON array so readiness never passed).
+diff --git a/claude/hooks/edit-delegation-guard.ps1 b/claude/hooks/edit-delegation-guard.ps1
+new file mode 100644
+index 0000000..3a3f214
+--- /dev/null
++++ b/claude/hooks/edit-delegation-guard.ps1
+@@ -0,0 +1,141 @@
++# Intent: remind the supervisor to delegate only when an inline edit is large (2026-11-12, Line).
++#   -Mode check   PreToolUse Edit|Write|MultiEdit: non-blocking additionalContext when one edit adds
++#                 more than 50 non-blank lines, or when this is the 3rd+ distinct file edited since the last prompt.
++#   -Mode reset   UserPromptSubmit: clears distinct files, keeps the session line budget. Silent.
++#   -Mode session SessionStart: prints one delegation line and prunes state files older than 24 h.
++# Exempt: ~/.claude/projects/*/memory, any .handoff or .packets folder, Claude scratchpads, subagents (agent_id).
++# State: ~/.claude/state/edit-delegation/<session_id>.json = {files: [...], addedLines: N}.
++# Legacy path arrays migrate on the next call. Prompt resets and edits use the same exclusive lock.
++# Intent: warn above 150 session lines; mark OVER BUDGET above 300. Never deny.
++# Status: fixture-covered. Next: supervisor installs. Blockers: none. Confidence: high.
++# Speed: .NET only, no nested functions; cmdlet JSON and path cmdlets add ~110 ms of module load.
++# Fails open: any error = exit 0, no output. Never denies. Confidence: high.
++param([string]$Mode = 'check')
++
++$stateDir = [IO.Path]::Combine($env:USERPROFILE, '.claude', 'state', 'edit-delegation')
++
++if ($Mode -eq 'session') {
++    [Console]::Out.WriteLine('[DELEGATION] Multi-file or >50-line coding goes to the worker (codex-do.ps1, or an Opus subagent when Codex is off); inline Edit/Write is for small fixes. A PreToolUse hook warns on large inline edits.')
++    try {
++        if ([IO.Directory]::Exists($stateDir)) {
++            $cut = [DateTime]::UtcNow.AddHours(-24)
++            foreach ($f in [IO.Directory]::GetFiles($stateDir, '*.json')) {
++                if ([IO.File]::GetLastWriteTimeUtc($f) -lt $cut) { [IO.File]::Delete($f) }
++            }
++        }
++    }
++    catch {}
++    exit 0
++}
++
++try {
++    $raw = [Console]::In.ReadToEnd()
++
++    [void][Reflection.Assembly]::LoadWithPartialName('System.Web.Extensions')
++    $json = [System.Web.Script.Serialization.JavaScriptSerializer]::new()
++    $json.MaxJsonLength = 67108864
++    $request = $json.DeserializeObject($raw)
++    $sid = [string]$request['session_id']
++    if (-not $sid) { exit 0 }
++    # Subagents are the worker when Codex is off; the reminder targets the main (supervisor) thread only.
++    if ($request.ContainsKey('agent_id') -and $request['agent_id']) { exit 0 }
++
++    $added = 0
++    $full = ''
++    if ($Mode -ne 'reset') {
++        $tool = [string]$request['tool_name']
++        if ($tool -ne 'Edit' -and $tool -ne 'Write' -and $tool -ne 'MultiEdit') { exit 0 }
++        $ti = $request['tool_input']
++        $path = [string]$ti['file_path']
++        if (-not $path) { exit 0 }
++        $full = [IO.Path]::GetFullPath($path)
++        if ($full -match '(?i)\\\.claude\\projects\\[^\\]+\\memory(\\|$)' -or
++            $full -match '(?i)\\\.handoff(\\|$)' -or
++            $full -match '(?i)\\\.packets(\\|$)' -or
++            $full -match '(?i)\\Temp\\claude\\.*\\scratchpad(\\|$)') { exit 0 }
++
++        # Added lines = non-blank lines in the new text that are not in the old text.
++        $pairs = [System.Collections.Generic.List[object]]::new()
++        if ($tool -eq 'Write') {
++            $old = ''
++            if ([IO.File]::Exists($full)) { $old = [IO.File]::ReadAllText($full) }
++            $pairs.Add(@($old, [string]$ti['content']))
++        }
++        elseif ($tool -eq 'Edit') { $pairs.Add(@([string]$ti['old_string'], [string]$ti['new_string'])) }
++        else { foreach ($e in @($ti['edits'])) { $pairs.Add(@([string]$e['old_string'], [string]$e['new_string'])) } }
++        $added = 0
++        foreach ($pair in $pairs) {
++            if (-not $pair[1]) { continue }
++            $oldSet = [System.Collections.Generic.HashSet[string]]::new()
++            if ($pair[0]) { foreach ($l in ($pair[0] -split "`r?`n")) { [void]$oldSet.Add($l.Trim()) } }
++            foreach ($l in ($pair[1] -split "`r?`n")) {
++                $t = $l.Trim()
++                if ($t.Length -gt 0 -and -not $oldSet.Contains($t)) { $added++ }
++            }
++        }
++    }
++
++    # Per-session state, read-modify-write under an exclusive lock (FileShare.None) so parallel tool
++    # calls of one session do not lose each other's files. Up to 5 tries x 10 ms; then fail open:
++    # the file list counts as empty and nothing is written. Malformed content counts as empty.
++    $stateFile = [IO.Path]::Combine($stateDir, ([regex]::Replace($sid, '[^A-Za-z0-9_.-]', '_') + '.json'))
++    $files = [System.Collections.Generic.List[string]]::new()
++    $key = $full.ToLowerInvariant()
++    $isNew = $true
++    $total = [long]0
++    $fs = $null
++    try {
++        if (-not [IO.Directory]::Exists($stateDir)) { [void][IO.Directory]::CreateDirectory($stateDir) }
++        for ($try = 0; $try -lt 5 -and -not $fs; $try++) {
++            try { $fs = [IO.File]::Open($stateFile, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None) }
++            catch { [Threading.Thread]::Sleep(10) }
++        }
++        if ($fs) {
++            $buf = [byte[]]::new([int]$fs.Length)
++            $read = 0
++            while ($read -lt $buf.Length) { $r = $fs.Read($buf, $read, $buf.Length - $read); if ($r -le 0) { break }; $read += $r }
++            $text = [Text.Encoding]::UTF8.GetString($buf, 0, $read)
++            if ($text.Trim()) {
++                try {
++                    $saved = $json.DeserializeObject($text)
++                    $arr = $saved
++                    if ($saved -is [System.Collections.IDictionary]) {
++                        $arr = $saved['files']
++                        $total = [Math]::Max(0, [long]$saved['addedLines'])
++                    }
++                    if ($arr -is [object[]]) { foreach ($f in $arr) { if ($f -is [string]) { $files.Add($f) } } }
++                }
++                catch { $files.Clear(); $total = 0 }
++            }
++            $isNew = -not $files.Contains($key)
++            if ($Mode -eq 'reset') { $files.Clear() }
++            else {
++                if ($isNew) { $files.Add($key) }
++                $total += $added
++            }
++            $bytes = [Text.Encoding]::UTF8.GetBytes($json.Serialize(@{ files = $files.ToArray(); addedLines = $total }))
++            $fs.SetLength(0); $fs.Write($bytes, 0, $bytes.Length)
++        }
++        else { $files.Add($key) }
++    }
++    catch { $files.Clear(); $files.Add($key) }
++    finally { if ($fs) { $fs.Dispose() } }
++    if ($Mode -eq 'reset') { exit 0 }
++
++    $why = $null
++    if ($added -gt 50) { $why = "this edit adds about $added lines" }
++    elseif ($isNew -and $files.Count -ge 3) { $why = "this is distinct file $($files.Count) edited inline since Line's last prompt" }
++    $msg = ''
++    if ($why) {
++        $msg = "[DELEGATION WARNING] Large inline edit: $why. Work over ~50 lines or 3+ files goes to the worker: codex-do.ps1 with a task packet, or an Opus subagent when Codex is off. Continue inline only for touch-ups to a worker diff or mechanical edits (AGENTS.md section 15)."
++    }
++    if ($total -gt 150) {
++        $over = if ($total -gt 300) { 'OVER BUDGET - ' } else { '' }
++        if ($msg) { $msg += ' ' }
++        $msg += "[EDIT BUDGET] $total lines inline this session - ${over}delegate the rest"
++    }
++    if (-not $msg) { exit 0 }
++    [Console]::Out.WriteLine('{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"' + $msg.Replace('\', '\\').Replace('"', '\"') + '"}}')
++}
++catch {}
++exit 0
+diff --git a/claude/hooks/shell-guards.ps1 b/claude/hooks/shell-guards.ps1
+new file mode 100644
+index 0000000..94a0e15
+--- /dev/null
++++ b/claude/hooks/shell-guards.ps1
+@@ -0,0 +1,36 @@
++# Intent: run the existing shell guards in order without three PowerShell startups.
++# Status: equivalence-tested. Next: supervisor installs. Blockers: none. Confidence: high.
++# The guard scripts remain the source of truth, including fail-closed push approval.
++try {
++    $raw = [Console]::In.ReadToEnd()
++    # Include the judge tools, which do not need an OpenRouter mention. JSON Unicode
++    # escapes must take the slow path: e.g. p\u0075sh or \u003c\u003cEOF.
++    # PowerShell also accepts backticks inside command tokens (p`u`sh).
++    if ($raw -notmatch '(?i)push|openrouter|label-judges|run-panel|<<|\\u[0-9a-f]{4}|`') { exit 0 }
++
++    $stdin = [Console]::In
++    $stdout = [Console]::Out
++    foreach ($guard in @('git-push-guard.ps1', 'openrouter-model-guard.ps1', 'bash-heredoc-guard.ps1')) {
++        $reader = [IO.StringReader]::new($raw)
++        $writer = [IO.StringWriter]::new()
++        try {
++            [Console]::SetIn($reader)
++            [Console]::SetOut($writer)
++            # Call in a child script scope: its exit returns here, not out of this host.
++            # Each script retains its own tool-name checks (heredocs are Bash only).
++            & (Join-Path $PSScriptRoot $guard)
++        }
++        finally {
++            [Console]::SetIn($stdin)
++            [Console]::SetOut($stdout)
++            $output = $writer.ToString()
++            $reader.Dispose()
++            $writer.Dispose()
++        }
++        if ($output.Trim()) {
++            [Console]::Out.Write($output)
++            exit 0
++        }
++    }
++} catch {}
++exit 0
+diff --git a/claude/tests/hook-test-lib.ps1 b/claude/tests/hook-test-lib.ps1
+new file mode 100644
+index 0000000..e4901be
+--- /dev/null
++++ b/claude/tests/hook-test-lib.ps1
+@@ -0,0 +1,45 @@
++. (Join-Path $PSScriptRoot 'test-lib.ps1')
++
++# Run real hook entry points with isolated homes; commands in the payload are never executed.
++function Invoke-TestHook {
++    param([string]$Hook, [string]$Payload, [string]$Profile, [string]$Arguments = '')
++    $info = New-Object Diagnostics.ProcessStartInfo
++    $info.FileName = 'powershell.exe'
++    $info.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $Hook + '" ' + $Arguments
++    $info.UseShellExecute = $false
++    $info.CreateNoWindow = $true
++    $info.RedirectStandardInput = $true
++    $info.RedirectStandardOutput = $true
++    $info.RedirectStandardError = $true
++    $info.EnvironmentVariables['USERPROFILE'] = $Profile
++    $info.EnvironmentVariables.Remove('OPENROUTER_GUARD_OVERRIDE')
++    $process = New-Object Diagnostics.Process
++    $process.StartInfo = $info
++    $watch = [Diagnostics.Stopwatch]::StartNew()
++    try {
++        [void]$process.Start()
++        $stdout = $process.StandardOutput.ReadToEndAsync()
++        $stderr = $process.StandardError.ReadToEndAsync()
++        $process.StandardInput.Write($Payload)
++        $process.StandardInput.Close()
++        $process.WaitForExit()
++        $watch.Stop()
++        return [pscustomobject]@{
++            ExitCode = $process.ExitCode
++            Output = $stdout.Result.Trim()
++            Error = $stderr.Result.Trim()
++            Milliseconds = $watch.Elapsed.TotalMilliseconds
++        }
++    }
++    finally { $process.Dispose() }
++}
++
++function New-ShellPayload([string]$Command, [string]$Tool = 'PowerShell') {
++    return @{ tool_name = $Tool; tool_input = @{ command = $Command } } | ConvertTo-Json -Compress -Depth 5
++}
++
++function Get-HookDecision($Result) {
++    if (-not $Result.Output) { return 'allow|' }
++    $output = ($Result.Output | ConvertFrom-Json).hookSpecificOutput
++    return $output.permissionDecision + '|' + $output.permissionDecisionReason
++}
+diff --git a/claude/tests/shell-guards.test.ps1 b/claude/tests/shell-guards.test.ps1
+new file mode 100644
+index 0000000..cf67600
+--- /dev/null
++++ b/claude/tests/shell-guards.test.ps1
+@@ -0,0 +1,92 @@
++. (Join-Path $PSScriptRoot 'hook-test-lib.ps1')
++$hooks = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\hooks'))
++$combined = Join-Path $hooks 'shell-guards.ps1'
++if (-not (Test-Path -LiteralPath $combined)) { throw 'shell-guards.ps1 is missing' }
++$temp = New-TestFolder
++$cases = @(
++    @{ Name = 'plain PowerShell'; Command = 'Write-Host hello' },
++    @{ Name = 'plain Windows payload'; Raw = '{"tool_name":"PowerShell","cwd":"D:\\repo","tool_input":{"command":"Write-Host hello"}}' },
++    @{ Name = 'plain Bash'; Command = 'ls -la'; Tool = 'Bash' },
++    @{ Name = 'push denied'; Command = 'git push origin main'; Deny = $true },
++    @{ Name = 'push approved'; Command = 'git push origin main'; Flag = $true },
++    @{ Name = 'Bash push denied'; Command = 'git push origin main'; Tool = 'Bash'; Deny = $true },
++    @{ Name = 'Bash push approved'; Command = 'git push origin main'; Tool = 'Bash'; Flag = $true },
++    @{ Name = 'git options'; Command = 'git -C repo --no-pager push origin main'; Deny = $true },
++    @{ Name = 'Bash chain'; Command = 'echo ok && git -C repo push'; Tool = 'Bash'; Deny = $true },
++    @{ Name = 'PowerShell quoted push'; Command = '& git "push"'; Deny = $true },
++    @{ Name = 'PowerShell escaped push'; Command = 'git p`u`sh'; Deny = $true },
++    @{ Name = 'push text'; Command = 'Write-Host "git push origin main"' },
++    @{ Name = 'Bash quoted push text'; Command = 'echo "git push origin main"'; Tool = 'Bash' },
++    @{ Name = 'Bash push comment'; Command = '# git push origin main'; Tool = 'Bash' },
++    @{ Name = 'openrouter denied'; Command = 'curl https://openrouter.ai -d openai/gpt-6-astra'; Deny = $true },
++    @{ Name = 'openrouter override'; Command = 'OPENROUTER_GUARD_OVERRIDE=1 curl https://openrouter.ai -d openai/gpt-6-astra' },
++    @{ Name = 'openrouter allowed model'; Command = 'curl https://openrouter.ai -d openai/gpt-6-luna' },
++    @{ Name = 'openrouter read'; Command = 'curl https://openrouter.ai/api/v1/models' },
++    @{ Name = 'judge trigger without openrouter'; Command = 'node label-judges.mjs'; Deny = $true },
++    @{ Name = 'judge dry run'; Command = 'node label-judges.mjs --dry-run' },
++    @{ Name = 'panel trigger without openrouter'; Command = 'powershell -File run-panel.ps1'; Deny = $true },
++    @{ Name = 'heredoc Bash'; Command = "cat <<'EOF'`nhello`nEOF"; Tool = 'Bash'; Deny = $true },
++    @{ Name = 'heredoc PowerShell'; Command = "Write-Host '<<EOF'" },
++    @{ Name = 'Bash here string'; Command = 'cat <<< hello'; Tool = 'Bash' },
++    @{ Name = 'commit heredoc exemption'; Command = 'git commit -m "$(cat <<EOF)"'; Tool = 'Bash' },
++    @{ Name = 'push before other denials'; Command = 'git push; node run-panel.ps1'; Deny = $true },
++    @{ Name = 'approved push then denied panel'; Command = 'git push; node run-panel.ps1'; Flag = $true; Deny = $true },
++    @{ Name = 'panel before heredoc'; Command = 'run-panel.ps1 <<EOF'; Tool = 'Bash'; Deny = $true },
++    @{ Name = 'dispatcher mention'; Command = 'Write-Host codex-do.ps1' },
++    @{ Name = 'malformed plain'; Raw = '{invalid' },
++    @{ Name = 'malformed trigger'; Raw = '{invalid push openrouter <<' },
++    @{ Name = 'escaped push'; Raw = '{"tool_name":"PowerShell","tool_input":{"command":"git p\u0075sh"}}'; Deny = $true },
++    @{ Name = 'escaped heredoc'; Raw = '{"tool_name":"Bash","tool_input":{"command":"cat \u003c\u003cEOF"}}'; Deny = $true },
++    @{ Name = 'other tool'; Command = 'git push'; Tool = 'Read' },
++    @{ Name = 'missing command'; Raw = '{"tool_name":"Bash","tool_input":{}}' }
++)
++try {
++    $index = 0
++    foreach ($case in $cases) {
++        $index++
++        $tool = 'PowerShell'
++        if ($case.Tool) { $tool = $case.Tool }
++        $payload = if ($case.ContainsKey('Raw')) { $case.Raw } else { New-ShellPayload $case.Command $tool }
++        $results = @()
++        foreach ($variant in @('old', 'new')) {
++            $profile = Join-Path $temp "$index-$variant"
++            $state = Join-Path $profile '.claude\state'
++            [void][IO.Directory]::CreateDirectory($state)
++            $flag = Join-Path $state 'allow-push-once'
++            if ($case.Flag) { [IO.File]::WriteAllText($flag, '') }
++            $scripts = @('shell-guards.ps1')
++            if ($variant -eq 'old') {
++                $scripts = @('git-push-guard.ps1', 'openrouter-model-guard.ps1')
++                if ($tool -eq 'Bash' -or $case.Raw) { $scripts += 'bash-heredoc-guard.ps1' }
++            }
++            foreach ($script in $scripts) {
++                $result = Invoke-TestHook (Join-Path $hooks $script) $payload $profile
++                # Existing malformed JSON can emit stderr; its allow/deny contract is unchanged.
++                if ((Get-HookDecision $result) -ne 'allow|' -or $result.ExitCode -ne 0) { break }
++            }
++            $results += $result
++            if ($case.Flag) { Assert-True (-not (Test-Path -LiteralPath $flag)) "$($case.Name): $variant consumes flag" }
++        }
++        Assert-True ($results[0].ExitCode -eq $results[1].ExitCode -and
++            (Get-HookDecision $results[0]) -ceq (Get-HookDecision $results[1])) "$($case.Name): identical exit, decision, reason"
++        Assert-True (((Get-HookDecision $results[1]) -like 'deny|*') -eq [bool]$case.Deny) "$($case.Name): expected decision"
++        Assert-True ($results[1].ExitCode -eq 0) "$($case.Name): hook exits zero"
++    }
++    # One-use approval, including a failure to claim a locked flag, stays fail-closed.
++    $profile = Join-Path $temp 'one-use'
++    $state = Join-Path $profile '.claude\state'
++    [void][IO.Directory]::CreateDirectory($state)
++    $flag = Join-Path $state 'allow-push-once'
++    [IO.File]::WriteAllText($flag, '')
++    $payload = New-ShellPayload 'git push'
++    Assert-True ((Get-HookDecision (Invoke-TestHook $combined $payload $profile)) -eq 'allow|') 'first push consumes approval'
++    Assert-True ((Get-HookDecision (Invoke-TestHook $combined $payload $profile)) -like 'deny|*') 'second push denied'
++    [IO.File]::WriteAllText($flag, '')
++    $lock = [IO.File]::Open($flag, 'Open', 'ReadWrite', 'None')
++    try {
++        $old = Invoke-TestHook (Join-Path $hooks 'git-push-guard.ps1') $payload $profile
++        $new = Invoke-TestHook $combined $payload $profile
++        Assert-True ((Get-HookDecision $old) -ceq (Get-HookDecision $new) -and (Get-HookDecision $new) -like 'deny|*') 'locked approval fails closed identically'
++    } finally { $lock.Dispose() }
++} finally { Remove-TestFolder $temp }
++Complete-Tests
+diff --git a/claude/tests/edit-budget.test.ps1 b/claude/tests/edit-budget.test.ps1
+new file mode 100644
+index 0000000..a3092b7
+--- /dev/null
++++ b/claude/tests/edit-budget.test.ps1
+@@ -0,0 +1,75 @@
++. (Join-Path $PSScriptRoot 'hook-test-lib.ps1')
++$hook = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\hooks\edit-delegation-guard.ps1'))
++$temp = New-TestFolder
++function Invoke-Edit([string]$Sid, [int]$Lines, [string]$Path = 'src/a.ps1', [string]$Agent = '', [string]$Tool = 'Edit') {
++    $text = ((1..$Lines | ForEach-Object { "line $_" }) -join "`n")
++    if ($Lines -eq 0) { $text = " `n`t" }
++    $inputObject = @{ session_id = $Sid; tool_name = $Tool; tool_input = @{ file_path = (Join-Path $temp $Path) } }
++    if ($Tool -eq 'Write') { $inputObject.tool_input.content = $text }
++    elseif ($Tool -eq 'MultiEdit') { $inputObject.tool_input.edits = @(@{ old_string = ''; new_string = $text }) }
++    else { $inputObject.tool_input.old_string = ''; $inputObject.tool_input.new_string = $text }
++    if ($Agent) { $inputObject.agent_id = $Agent }
++    return Invoke-EditPayload ($inputObject | ConvertTo-Json -Compress -Depth 6)
++}
++function Invoke-EditPayload([string]$Payload, [string]$Arguments = '') {
++    $result = Invoke-TestHook $hook $Payload $temp $Arguments
++    Assert-True ($result.ExitCode -eq 0 -and -not $result.Error) 'edit hook fails open with no stderr'
++    if (-not $result.Output) { return '' }
++    $output = ($result.Output | ConvertFrom-Json).hookSpecificOutput
++    Assert-True (-not $output.permissionDecision) 'edit hook never denies'
++    return [string]$output.additionalContext
++}
++try {
++    $msg = Invoke-Edit 'budget' 150
++    Assert-True ($msg -notmatch '\[EDIT BUDGET\]' -and $msg -match 'DELEGATION WARNING') '150 is not over budget; original large-edit warning retained'
++    $msg = Invoke-Edit 'budget' 1
++    Assert-True ($msg -match '\[EDIT BUDGET\] 151 lines inline this session - delegate the rest') '151 triggers budget reminder'
++    Invoke-EditPayload '{"session_id":"budget"}' '-Mode reset' | Out-Null
++    $msg = Invoke-Edit 'budget' 149
++    Assert-True ($msg -match '\[EDIT BUDGET\] 300 lines' -and $msg -notmatch 'OVER BUDGET') 'prompt reset preserves budget; 300 not over hard threshold'
++    $msg = Invoke-Edit 'budget' 1
++    Assert-True ($msg -match '\[EDIT BUDGET\] 301 lines inline this session - OVER BUDGET - delegate the rest') '301 marks OVER BUDGET'
++    Assert-True ((Invoke-Edit 'budget' 0) -match '301 lines') 'blank lines do not increase budget'
++    Assert-True ((Invoke-Edit 'other' 1) -eq '') 'sessions isolated'
++    Assert-True ((Invoke-Edit 'budget' 100 'src/a.ps1' 'worker') -eq '') 'subagent exempt'
++    foreach ($path in @('.packets/a.md', 'nested/.packets/a.md', '.handoff/a.md', '.claude/projects/test/memory/a.md', 'Temp/claude/test/scratchpad/a.md')) {
++        Assert-True ((Invoke-Edit 'budget' 100 $path) -eq '') "$path exempt"
++    }
++    Assert-True ((Invoke-Edit 'budget' 0) -match '301 lines') 'exempt calls do not spend budget'
++    Invoke-Edit 'files' 1 'src/a.ps1' | Out-Null
++    Invoke-Edit 'files' 1 'src/b.ps1' | Out-Null
++    Assert-True ((Invoke-Edit 'files' 1 'src/c.ps1') -match 'distinct file 3') 'original distinct file warning'
++    Invoke-EditPayload '{"session_id":"files"}' '-Mode reset' | Out-Null
++    Assert-True ((Invoke-Edit 'files' 1 'src/d.ps1') -eq '') 'prompt reset clears distinct files'
++    Invoke-Edit 'tools' 100 'src/a.ps1' '' 'Write' | Out-Null
++    Assert-True ((Invoke-Edit 'tools' 51 'src/a.ps1' '' 'MultiEdit') -match '151 lines') 'Write and MultiEdit accumulate'
++    $payload = @{ session_id = 'unchanged'; tool_name = 'Edit'; tool_input = @{ file_path = (Join-Path $temp 'a'); old_string = "same`nold"; new_string = "same`nnew`n `n" } } | ConvertTo-Json -Compress -Depth 4
++    Invoke-EditPayload $payload | Out-Null
++    Assert-True ((Invoke-Edit 'unchanged' 150) -match '151 lines') 'unchanged and blank lines excluded'
++    $written = Join-Path $temp 'existing.ps1'
++    [IO.File]::WriteAllText($written, "line 1`nline 2`nline 3")
++    Invoke-Edit 'existing-write' 5 'existing.ps1' '' 'Write' | Out-Null
++    Assert-True ((Invoke-Edit 'existing-write' 149) -match '151 lines') 'Write subtracts existing non-blank lines'
++    $payload = @{ session_id = 'multi-pairs'; tool_name = 'MultiEdit'; tool_input = @{
++        file_path = (Join-Path $temp 'a'); edits = @(
++            @{ old_string = 'same'; new_string = "same`nnew" },
++            @{ old_string = ''; new_string = "more`nlast" }
++        )
++    } } | ConvertTo-Json -Compress -Depth 6
++    Invoke-EditPayload $payload | Out-Null
++    Assert-True ((Invoke-Edit 'multi-pairs' 148) -match '151 lines') 'MultiEdit sums all edit pairs'
++    Assert-True ((Invoke-Edit 'packets-lookalike' 151 '.packets-other/a.md') -match '151 lines') 'only the exact .packets folder is exempt'
++    Invoke-EditPayload '{"session_id":"budget","agent_id":"worker"}' '-Mode reset' | Out-Null
++    Assert-True ((Invoke-Edit 'budget' 0) -match '301 lines') 'subagent reset cannot reset supervisor budget'
++    Assert-True ((Invoke-EditPayload '{"tool_name":"Edit"}') -eq '') 'missing session is ignored'
++    $state = Join-Path $temp '.claude/state/edit-delegation/legacy.json'
++    [IO.File]::WriteAllText($state, '["old-a","old-b"]')
++    Assert-True ((Invoke-Edit 'legacy' 1) -match 'distinct file 3') 'legacy file-list state retained'
++    [IO.File]::WriteAllText($state, '{broken')
++    Assert-True ((Invoke-Edit 'legacy' 1) -eq '') 'corrupt state fails open'
++    Assert-True ((Invoke-EditPayload '{broken') -eq '') 'malformed input fails open'
++    $lock = [IO.File]::Open($state, 'Open', 'ReadWrite', 'None')
++    try { Assert-True ((Invoke-Edit 'legacy' 1) -eq '') 'locked state fails open' }
++    finally { $lock.Dispose() }
++} finally { Remove-TestFolder $temp }
++Complete-Tests
+diff --git a/claude/tests/statusline-pace.test.js b/claude/tests/statusline-pace.test.js
+new file mode 100644
+index 0000000..6fb75b7
+--- /dev/null
++++ b/claude/tests/statusline-pace.test.js
+@@ -0,0 +1,70 @@
++const assert = require('node:assert/strict');
++const fs = require('node:fs');
++const os = require('node:os');
++const path = require('node:path');
++const { spawnSync } = require('node:child_process');
++const { test } = require('node:test');
++const statusline = path.resolve(__dirname, '../statusline-ultrathink.js');
++const { weeklyPace } = require(statusline);
++const week = 7 * 24 * 60 * 60_000;
++const now = Date.parse('2026-11-13T12:00:00Z');
++
++test('weekly pace uses elapsed window, accepts both existing reset formats, rejects unavailable inputs', () => {
++  assert.equal(weeklyPace(60, (now + week / 2) / 1000, now), 1.2);
++  assert.equal(weeklyPace(60, new Date(now + week / 2).toISOString(), now), 1.2);
++  assert.equal(weeklyPace(0, (now + week / 2) / 1000, now), 0);
++  assert.equal(weeklyPace(75, (now + week / 2) / 1000, now), 1.5);
++  for (const used of [null, undefined, '', '60', NaN, Infinity, -1, 101]) {
++    assert.equal(weeklyPace(used, (now + week / 2) / 1000, now), null);
++  }
++  for (const reset of [null, undefined, '', 'bad', {}, NaN, Infinity, 0, now / 1000,
++    (now - 1) / 1000, (now + week) / 1000, (now + week + 1) / 1000]) {
++    assert.equal(weeklyPace(60, reset, now), null);
++  }
++});
++
++test('real statusline renders numeric pace and threshold colours from existing caches only', () => {
++  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'statusline-pace-'));
++  const cache = path.join(temp, 'ultrathink-status');
++  const main = path.join(temp, 'codex');
++  const env = { ...process.env, USERPROFILE: temp, HOME: temp, TEMP: temp, TMP: temp,
++    CODEX_ACC_MAIN_HOME: main, CODEX_ACC_ROOT: path.join(temp, 'accounts'),
++    CODEX_DO_STATE_DIR: path.join(temp, 'state'), ULTRATHINK_TRAIL_OVERRIDE: path.join(temp, 'trail') };
++  const write = (name, value) => fs.writeFileSync(path.join(cache, name), JSON.stringify(value));
++  const input = fs.readFileSync(path.join(__dirname, 'fixtures/statusline-input.json'), 'utf8');
++  try {
++    fs.mkdirSync(cache);
++    fs.mkdirSync(main);
++    // Assert isolation before executing a renderer that can refresh account data.
++    const probe = spawnSync(process.execPath, ['-e', 'process.stdout.write(JSON.stringify([require("os").homedir(),require("os").tmpdir()]))'], { env, encoding: 'utf8' });
++    assert.equal(probe.status, 0, probe.stderr);
++    assert.deepEqual(JSON.parse(probe.stdout), [temp, temp]);
++    write('accounts.json', { claude: 'fixture', codex: 'fixture' });
++    write('openrouter-usage.json', {});
++    const render = (used, options = {}) => {
++      const reset = Date.now() + week / 2;
++      write('anthropic-usage.json', { seven_day: { utilization: used,
++        ...(options.missing ? {} : { resets_at: new Date(options.expired ? Date.now() - 1000 : reset).toISOString() }) } });
++      write('codex-usage.json', { weekly: { left: 100 - used,
++        ...(options.exact ? { usedPercent: used + 0.4 } : {}),
++        ...(options.missing ? {} : { resetsAt: (options.expired ? Date.now() - 1000 : reset) / 1000 }) } });
++      const result = spawnSync(process.execPath, [statusline], { env, input, encoding: 'utf8' });
++      assert.equal(result.status, 0, result.stderr);
++      assert.equal(result.stderr, '');
++      return result.stdout;
++    };
++    for (const [used, pace, colour] of [[40, '0.8', 151], [60, '1.2', 214], [75, '1.5', 203]]) {
++      const output = render(used);
++      assert.equal((output.match(new RegExp(`pace ${pace.replace('.', '\\.')}x`, 'g')) || []).length, 2);
++      assert.ok(output.includes(`\x1b[38;5;${colour}mpace ${pace}x`));
++      for (const name of ['claude', 'codex']) {
++        const line = output.split('\n').find(line => line.includes(name));
++        assert.match(line, /wk.*pace/);
++      }
++    }
++    // Raw Codex usage can carry decimals that the old 'left' cache rounded away.
++    assert.match(render(62.4, { exact: true }), /pace 1\.3x/);
++    assert.doesNotMatch(render(60, { missing: true }), /pace /);
++    assert.doesNotMatch(render(60, { expired: true }), /pace /);
++  } finally { fs.rmSync(temp, { recursive: true, force: true }); }
++});
+diff --git a/claude/tests/fixtures/statusline-input.json b/claude/tests/fixtures/statusline-input.json
+new file mode 100644
+index 0000000..e5a0f57
+--- /dev/null
++++ b/claude/tests/fixtures/statusline-input.json
+@@ -0,0 +1,6 @@
++{
++  "model": { "display_name": "Claude fixture" },
++  "session_id": "quota-pace-fixture",
++  "context_window": { "used_percentage": 25 },
++  "cost": { "total_cost_usd": 0 }
++}
+diff --git a/claude/tests/measure-shell-guards.ps1 b/claude/tests/measure-shell-guards.ps1
+new file mode 100644
+index 0000000..da978e7
+--- /dev/null
++++ b/claude/tests/measure-shell-guards.ps1
+@@ -0,0 +1,32 @@
++. (Join-Path $PSScriptRoot 'hook-test-lib.ps1')
++$hooks = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\hooks'))
++$temp = New-TestFolder
++function Get-Median($Values) {
++    $sorted = @($Values | Sort-Object)
++    return ($sorted[4] + $sorted[5]) / 2
++}
++try {
++    $empty = Join-Path $temp 'empty.ps1'
++    [IO.File]::WriteAllText($empty, '')
++    $payload = New-ShellPayload 'echo hello' 'Bash'
++    $samples = @{ combined = @(); separate = @(); baseline = @() }
++    for ($i = 0; $i -lt 10; $i++) {
++        foreach ($variant in @('baseline', 'combined', 'separate')) {
++            $scripts = switch ($variant) {
++                'baseline' { $empty }
++                'combined' { Join-Path $hooks 'shell-guards.ps1' }
++                'separate' { foreach ($name in @('git-push-guard.ps1', 'openrouter-model-guard.ps1', 'bash-heredoc-guard.ps1')) { Join-Path $hooks $name } }
++            }
++            $ms = 0
++            foreach ($script in $scripts) {
++                $result = Invoke-TestHook $script $payload $temp
++                if ($result.ExitCode -ne 0 -or $result.Output -or $result.Error) { throw "Timing run failed: $script $($result.Error)" }
++                $ms += $result.Milliseconds
++            }
++            $samples[$variant] += $ms
++        }
++    }
++    foreach ($variant in @('combined', 'separate', 'baseline')) {
++        '{0}: median of 10 = {1:N1} ms' -f $variant, (Get-Median $samples[$variant])
++    }
++} finally { Remove-TestFolder $temp }
+diff --git a/claude/tests/render-statusline-fixture.ps1 b/claude/tests/render-statusline-fixture.ps1
+new file mode 100644
+index 0000000..3988998
+--- /dev/null
++++ b/claude/tests/render-statusline-fixture.ps1
+@@ -0,0 +1,37 @@
++# Run the packet's stdin render with fresh dummy caches and no live account access.
++. (Join-Path $PSScriptRoot 'test-lib.ps1')
++$temp = New-TestFolder
++$saved = @{}
++$overrides = @{
++    USERPROFILE = $temp; HOME = $temp; TEMP = $temp; TMP = $temp
++    CODEX_ACC_MAIN_HOME = (Join-Path $temp 'codex')
++    CODEX_ACC_ROOT = (Join-Path $temp 'accounts')
++    CODEX_DO_STATE_DIR = (Join-Path $temp 'state')
++    ULTRATHINK_TRAIL_OVERRIDE = (Join-Path $temp 'trail')
++}
++try {
++    foreach ($name in $overrides.Keys) {
++        $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
++        [Environment]::SetEnvironmentVariable($name, $overrides[$name], 'Process')
++    }
++    $cache = Join-Path $temp 'ultrathink-status'
++    [void][IO.Directory]::CreateDirectory($cache)
++    $reset = [DateTimeOffset]::UtcNow.AddDays(3.5)
++    $fixtures = @{
++        'accounts.json' = @{ claude = 'fixture'; codex = 'fixture' }
++        'anthropic-usage.json' = @{ seven_day = @{ utilization = 60; resets_at = $reset.ToString('o') } }
++        'codex-usage.json' = @{ weekly = @{ left = 40; usedPercent = 60; resetsAt = $reset.ToUnixTimeSeconds() } }
++        'openrouter-usage.json' = @{}
++    }
++    foreach ($name in $fixtures.Keys) {
++        [IO.File]::WriteAllText((Join-Path $cache $name), ($fixtures[$name] | ConvertTo-Json -Compress -Depth 5), [Text.UTF8Encoding]::new($false))
++    }
++    Push-Location (Join-Path $PSScriptRoot '..\..')
++    try {
++        cmd /d /c 'node claude/statusline-ultrathink.js < claude/tests/fixtures/statusline-input.json'
++        if ($LASTEXITCODE -ne 0) { throw "Statusline exited $LASTEXITCODE" }
++    } finally { Pop-Location }
++} finally {
++    foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process') }
++    Remove-TestFolder $temp
++}
+diff --git a/claude/tests/quota-routing-report.md b/claude/tests/quota-routing-report.md
+new file mode 100644
+index 0000000..fa4c686
+--- /dev/null
++++ b/claude/tests/quota-routing-report.md
+@@ -0,0 +1,79 @@
++# Line's quota routing and shell guard handoff
++
++Date: 2026-11-13. Runtime: Windows PowerShell 5.1.26100.9818; Node v24.19.0.
++
++## What we build
++
++Route work by quota pace, warn on cumulative supervisor edits, and run the three shell guards in one PowerShell process. The working tree contains the implementation. No installation, commit, push, or subagent run was performed.
++
++Decision: call the original guard scripts in child script scopes with replayed stdin and captured stdout. This keeps their decisions and reasons in one source. Copying the logic was another viable option, but would let the push rule drift. Confidence: high for the tested contracts.
++
++## Current state
++
++Verified:
++
++| Check | Result |
++| --- | --- |
++| `powershell -NoProfile -ExecutionPolicy Bypass -File claude/tests/shell-guards.test.ps1` | 114 assertions passed |
++| `powershell -NoProfile -ExecutionPolicy Bypass -File claude/tests/edit-budget.test.ps1` | 76 assertions passed |
++| `node --test --test-concurrency=1 claude/tests/statusline-pace.test.js claude/bin/tests/statusline-codexhome.test.js claude/bin/tests/statusline-runs.test.js` | 6 tests passed |
++| Existing `claude/bin/tests/bash-heredoc-guard.test.ps1` | 8 cases passed |
++| Existing `claude/bin/tests/packet-docs-guard.test.ps1` | 27 cases passed |
++| `powershell -NoProfile -ExecutionPolicy Bypass -File claude/tests/render-statusline-fixture.ps1` | Ran the specified `node claude/statusline-ultrathink.js < claude/tests/fixtures/statusline-input.json` command with isolated homes and fresh dummy caches; both weekly quotas showed `pace 1.2x` |
++| Settings comparison against HEAD | Valid JSON; one Bash/PowerShell command, timeout 15; every other hook and setting unchanged |
++| PowerShell 5.1 parser; `node --check`; scoped `git diff --check` | Passed |
++| Original three guard files compared against HEAD | Unchanged |
++| Routing text presence and section placement | Passed |
++
++The final timing run used `claude/tests/measure-shell-guards.ps1`. Each median contains 10 samples; each separate-guard sample sums the three process durations. These runs were isolated from other validation jobs.
++
++| Plain command path | Median |
++| --- | --- |
++| Combined guard | 192.5 ms |
++| Sum of three original guards | 1,282.6 ms |
++| Empty `powershell.exe` script | 178.7 ms |
++
++The measured reduction is 1,090.1 ms per plain shell call, about 85%. No API call or new data source was needed. Model-routing cost savings and live hook latency are not measured.
++
++Not verified: live installation, independent supervisor review, broader unrelated repository tests, and high-contention parallel edit stress. Lock failure and prompt-reset persistence have deterministic coverage.
++
++## Files in flight
++
++- `claude/CLAUDE.md`
++- `claude/docs/packet-checklist.md`
++- `claude/hooks/edit-delegation-guard.ps1`
++- `claude/hooks/shell-guards.ps1`
++- `claude/settings.json`
++- `claude/statusline-ultrathink.js`
++- New scoped test helpers, tests, fixture, benchmark, render runner, report, and `quota-routing.diff` under `claude/tests/`.
++
++`quota-routing.diff` contains the tracked-file diff plus full additions for the scoped untracked files. The checklist and edit guard were already untracked before this task, so their full-file additions include inherited content. Use the supervisor's pre-task backup to isolate their exact delta. Existing unrelated working-tree changes were preserved.
++
++## What changed
++
++1. Added quota pace rules after Model Routing, including daily targets, Claude restrictions, both-side stop conditions, desktop/CLI accounting, and the 50M-session stop.
++2. Added Important packet pre-reading, two-FAIL redesign for Important/Critical, packet/RAM exit codes and switches, and ledger helper use. The requested old CHECKLIST sentence was absent in this checkout, so the new enforcement sentence was added to Worker Dispatch.
++3. Added the two requested lines at the top of the checklist; retained the rest verbatim.
++4. Added a single-process shell wrapper. The first denial wins. Its fast path includes judge-tool names as well as push/OpenRouter/heredoc triggers. Unicode escapes and PowerShell backticks take the guarded path. Normal Windows path separators do not defeat the fast path.
++5. Tested exit code, decision, exact reason, flag consumption, locked approval, malformed input, escaped push, guard order, and dispatcher mentions. Payload commands are never executed.
++6. Replaced only the shell hook entries in settings.
++7. Added cumulative line totals to the edit guard's locked state. Prompt reset clears the file list but retains the total. Legacy arrays migrate. Existing counting rules remain; `.packets` and subagent calls are exempt. Warnings start above 150 and change above 300. No denial is emitted.
++8. Added weekly pace beside Claude and Codex quotas. Missing, invalid, expired, or unstarted windows show no pace. Existing Codex caches derive usage from remaining quota; refreshed caches retain the exact used percentage. Colours use the unrounded pace; displayed numbers have one decimal.
++
++## What failed and why
++
++- Before implementation, the new shell test failed because the wrapper did not exist; nine budget assertions and both pace tests failed. They passed after implementation.
++- An added `git p`u`sh` fixture exposed a fast-path bypass. The trigger now includes backticks, and the final equivalence suite passed.
++- The existing 50-folder statusline speed test failed at 41.6 ms during concurrent checks and at 33.5 ms on an isolated retry (limit: 30 ms). Its code was not changed. The final serial suite passed at 27.9 ms; the HEAD baseline measured 28.7 ms. Treat this threshold as sensitive to host load.
++- A full-tree whitespace check found an existing extra blank line at `hub/tests/server.test.js:225`. It is outside scope. The scoped check passed.
++- The checklist still attributes enforcement to `hooks/packet-docs-guard.ps1`. This pre-existing sentence was retained because criterion 3 explicitly says to keep the rest. `CLAUDE.md` now names `codex-do.ps1` correctly. The supervisor should resolve this wording in a follow-up.
++
++Residual risks: quota data can be stale until the existing refresh runs; old Codex caches use rounded remaining percentages; edit state still fails open if storage is unavailable. The existing 24-hour state cleanup remains. These changes do not add a new quota data source or reconstruct earlier session edits.
++
++## The one next step
++
++The supervisor reviews this diff against the packet and the `live-pre-S` backup before installation. Resolve the retained checklist attribution at that review. Re-run the listed validation commands on the installation target. Rollback: restore the scoped original files from the supervisor backup and remove only this task's new files; do not discard unrelated working-tree changes.
++
++Sources checked on 2026-11-13: the three original guard scripts, existing hook JSON and tests, edit guard state/counting code, statusline cache readers, and the local runtime versions. No external model capability or pricing claim was researched or introduced beyond the supplied routing policy.
++
++usage: unavailable in current runtime

@@ -1,5 +1,5 @@
 /* Intent: measure r2 on r1 large records plus 600 small/medium source files.
- * Status: <80 MiB RSS and <8 MiB sampled ArrayBuffers gates, with a floor child.
+ * Status: <90 MiB RSS (v8) and <8 MiB sampled ArrayBuffers gates, with a floor child.
  * Next: compare real-data measurements in supervisor review. Blockers: none.
  * Confidence: child-reported process.resourceUsage().maxRSS, no memory-limit flags. */
 'use strict';
@@ -104,7 +104,7 @@ try {
       { timestamp, type: 'turn_context', payload: { model: 'gpt-bench', effort: 'high' } }]);
   fs.utimesSync(codexFile, mtimeBase + 500.5, mtimeBase + 500.5);
   // Interleave large files among 600 independently opened/closed files by mtime.
-  // Vary size within 1–500 KiB, exercising both sides of the 64 KiB read boundary.
+  // Vary size within 1â€“500 KiB, exercising both sides of the 64 KiB read boundary.
   const smallSizes = [];
   let smallClaudeBytes = 0, smallCodexBytes = 0;
   for (let part = 0; part < 600; part++) {
@@ -163,7 +163,9 @@ try {
   if (metrics.skipped_triage !== expectedSkipped || metrics.skipped_large || metrics.lines !== generated) {
     throw new Error('Unexpected triage result for representative data');
   }
-  const passed = metrics.max_rss_kb < 80 * 1024 && metrics.sampled_array_buffers_peak < 8 * MiB;
+  // v8 (2026-11-13): RSS gate 90 MiB (packet S3: "bench stays < 90 MB"). The v7 code already measured
+  // 83-84 MiB on Line's machine (Node 24 floor child alone ~64 MiB), so the old 80 MiB gate failed on v7 too.
+  const passed = metrics.max_rss_kb < 90 * 1024 && metrics.sampled_array_buffers_peak < 8 * MiB;
   console.log(JSON.stringify({ claude_bytes: claudeBytes + smallClaudeBytes, largest_claude_bytes: Math.max(...claudeSizes),
     codex_bytes: codexSize + smallCodexBytes, total_bytes: claudeBytes + codexSize + smallClaudeBytes + smallCodexBytes,
     source_files: smallSizes.length + 3, small_files: smallSizes.length,

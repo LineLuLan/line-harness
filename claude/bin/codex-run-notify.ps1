@@ -8,6 +8,16 @@
 #>
 param([Parameter(Mandatory = $true)][string]$RunFolder, [switch]$Deliver)
 $ErrorActionPreference = 'Stop'
+function Get-SubagentNotice {
+  param([string]$Folder)
+  try {
+    $count = 0
+    if ([int]::TryParse([IO.File]::ReadAllText((Join-Path $Folder 'subagents.txt')).Trim(), [ref]$count) -and $count -gt 0) {
+      return " | spawned $count sub-agent threads"
+    }
+  } catch {}
+  return ''
+}
 
 # Intent: completion survives launcher termination without delaying the worker.
 # Status: exit.txt is already published; delivery has a 14-second process budget.
@@ -73,6 +83,7 @@ try {
   $title = if ($state -eq 'done') { 'Codex worker done' } else { 'Codex worker FAILED' }
   $minutes = [Math]::Round(([IO.File]::GetLastWriteTimeUtc((Join-Path $RunFolder 'exit.txt')) - ([datetime]$run.startedUtc).ToUniversalTime()).TotalMinutes, 1)
   $body = '{0} | {1} | exit {2} | {3} min' -f $run.runId, (Split-Path -Leaf $run.dir), $code, $minutes
+  $body += Get-SubagentNotice -Folder $RunFolder
   try {
     [void][Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]
     [void][Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime]

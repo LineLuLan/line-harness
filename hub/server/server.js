@@ -1,5 +1,5 @@
 /* Intent: on-demand local dashboard server; read-only over the private hub DB.
- * Status: UI v4 (self-hosted woff2 fonts under /fonts/, CSP font-src 'self'; v3 added /viz.js). Binds 127.0.0.1 only, checks Host (DNS-rebinding guard), GET/HEAD only,
+ * Status: UI v6 (ten pages: overview, supervisor, workers, models (takes ?model=<key>&tier=<tier>), cost (Usage), productivity, harness, gates, system, trace - queries.js), v4 (self-hosted woff2 fonts under /fonts/, CSP font-src 'self'; v3 added /viz.js). Binds 127.0.0.1 only, checks Host (DNS-rebinding guard), GET/HEAD only,
  * fixed static allowlist (no path joins from the URL), exits after an idle period.
  * Next: none. Blockers: none. Confidence: tests/server.test.js + real-DB browser check. */
 'use strict';
@@ -9,13 +9,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 const { paths } = require('../collector/sources');
-const { range, pages } = require('./queries');
+const { range, pages, compareTier } = require('./queries');
 
 const WEB = path.join(__dirname, '..', 'web');
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.woff2': 'font/woff2' };
 // URL path -> file inside web/. Nothing outside this table is ever served.
 const STATIC = {
-  '/': 'index.html', '/app.js': 'app.js', '/charts.js': 'charts.js', '/viz.js': 'viz.js', '/style.css': 'style.css',
+  '/': 'index.html', '/app.js': 'app.js', '/charts.js': 'charts.js', '/viz.js': 'viz.js', '/route.js': 'route.js', '/style.css': 'style.css',
   '/vendor/preact.module.js': 'vendor/preact.module.js', '/vendor/hooks.module.js': 'vendor/hooks.module.js',
   '/vendor/htm.module.js': 'vendor/htm.module.js', '/vendor/uPlot.esm.js': 'vendor/uPlot.esm.js',
   '/vendor/uPlot.min.css': 'vendor/uPlot.min.css'
@@ -44,9 +44,35 @@ function envIdleMin(env) {
   const n = Number(env.LINE_HUB_IDLE_MIN);
   return Number.isFinite(n) && n > 0 ? n : 30;
 }
+/* H8a: the last `n` sampler toasts from <system dir>/alerts.jsonl (file tail only, never the DB). Each line is
+ * reduced to { ts, rule, text }; a bad line is skipped; a missing file gives [].
+ * Intent: System page lists recent alerts. Status: done. Next: none. Blockers: none.
+ * Confidence: tests/h8a-alerts.test.js. */
+const ALERT_TAIL_BYTES = 64 * 1024;
+function recentAlerts(file, n = 20) {
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    const size = fs.fstatSync(fd).size, len = Math.min(size, ALERT_TAIL_BYTES);
+    const buf = Buffer.alloc(len);
+    fs.readSync(fd, buf, 0, len, size - len);
+    const lines = buf.toString('utf8').split('\n');
+    if (len < size) lines.shift(); // first line may be cut
+    const out = [];
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const x = JSON.parse(line);
+        if (Number.isFinite(x.ts) && typeof x.rule === 'string' && typeof x.text === 'string') out.push({ ts: x.ts, rule: x.rule.slice(0, 4), text: x.text.slice(0, 300) });
+      } catch { /* skip a bad line */ }
+    }
+    return out.slice(-n).reverse();
+  } catch { return []; } finally { if (fd !== undefined) try { fs.closeSync(fd); } catch { /* closed */ } }
+}
 function start(options = {}) {
   const env = options.env || process.env;
   const dbFile = options.db || paths(env).db;
+  const alertsFile = path.join(options.systemDir || paths(env).system, 'alerts.jsonl');
   const port = options.port ?? envPort(env);
   const idleMs = options.idleMs ?? envIdleMin(env) * 60000;
   const checkMs = options.checkMs ?? 60000;
@@ -95,7 +121,9 @@ function start(options = {}) {
         const r = range(Number(url.searchParams.get('days')));
         const collected = Number(h.prepare("SELECT value FROM meta WHERE key='last_run_end'").get()?.value) || null;
         return json(res, 200, { range: { days: r.days, start: r.startDay, today: r.today }, collected, now: r.now,
-          data: pages[page](h, r) }, head);
+          // models takes ?model= as a plain string; queries.js only compares it with keys found in the range.
+          data: page === 'models' ? pages.models(h, r, url.searchParams.get('model'), compareTier(url.searchParams.get('tier')))
+            : page === 'system' ? { ...pages.system(h, r), alerts: recentAlerts(alertsFile) } : pages[page](h, r) }, head);
       } catch (error) {
         // A collector VACUUM or schema change can invalidate a long-lived reader; reopen on the next request.
         closeDb();
@@ -162,4 +190,4 @@ if (require.main === module) {
   server.on('close', () => process.exit(process.exitCode || 0));
 }
 
-module.exports = { start, envPort, envIdleMin };
+module.exports = { start, envPort, envIdleMin, recentAlerts };

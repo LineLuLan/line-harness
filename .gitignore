@@ -5,3 +5,4 @@ auth.json
 *.bak-*
 *.log
 node_modules/
+.packets/

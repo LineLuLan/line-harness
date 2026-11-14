@@ -142,7 +142,9 @@ param($Script)
   Assert-True ($result.Code -eq 5 -and $result.Text -notmatch 'GATE ') 'review missing account fails before gates even with empty diff'
   Write-TestFile (Join-Path $repo 'fixture.txt') 'review fixture'
   $result = Invoke-TestScript 'codex-review.ps1' @('-Dir', $repo, '-Account', 'missing', '-SkipModel')
-  Assert-True ($result.Code -eq 0 -and $result.Text.Contains('VERDICT: PASS (gates only, -SkipModel)')) "review -SkipModel ignores account and retains gates-only behavior: $($result.Text)"
+  # Intent: account bypass is explicitly gates-only. Status: updated assertion.
+  # Next: supervisor host suite. Blockers: none. Confidence: gates still exit zero.
+  Assert-True ($result.Code -eq 0 -and $result.Text.Contains('VERDICT: GATES-PASS (no model review)')) "review -SkipModel ignores account and retains gates-only behavior: $($result.Text)"
   Assert-Run 'codex-review.ps1' @('-Dir', $repo, '-Account', 'work', '-SkipGates') $workHome
   Assert-Run 'codex-review.ps1' @('-Dir', $repo, '-SkipGates') $workHome
   Assert-Run 'codex-review.ps1' @('-Dir', $repo, '-Account', 'main', '-SkipGates') 'NONE'

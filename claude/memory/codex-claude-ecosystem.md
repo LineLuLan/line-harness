@@ -1,6 +1,6 @@
 ---
 name: codex-claude-ecosystem
-description: "Division of labor between Codex (main coding, GPT-5.6-Sol; Astra trial 2026-09-06 to 09-08 rolled back, Astra only for Critical) and Claude Fable 5.1/Opus 5 (planning/reasoning/debug), and how Claude invokes Codex via the codex CLI"
+description: "Division of labor between Codex (main coding, GPT-5.6-Sol; Astra trial 2026-09-06 to 09-08 rolled back, Astra only for Critical) and Claude Opus 5.5 supervisor + Fable (5.2 at Critical since 2026-11-14) (planning/reasoning/debug), and how Claude invokes Codex via the codex CLI"
 metadata: 
   node_type: memory
   type: feedback
@@ -65,4 +65,4 @@ See [[codex-agents-rules]] for the shared safety/operating rules and [[codex-set
 - 2026-09-28: settings.json model was found at opus[1m] (drifted since ~09-19); Line asked to restore it to claude-fable-5-1[1m] to match the CLAUDE.md supervisor rule. Done; takes effect on the next session.
 
 ## Supervisor model change 2026-09-28 (Line approved)
-Fable weekly quota hit 96% (shared weekly pool 51%). Line: "giảm gánh nặng bằng Opus 5.5". Applied: settings.json model `claude-opus-5-5[1m]` + `effortLevel: high` (Opus 5.5 defaults to medium); CLAUDE.md supervisor rule = Opus 5.5 default, `/model` to Fable 5.1 for layer-3 at Important/Critical, hard root-cause, architecture; layer-2b subagent stays Fable 5.1; second-brain skill primary `claude-opus-5-5`. Opus 5.5 API price $4/$20 vs Fable $10/$50, same 1M context. Unmeasured: Opus 5.5 layer-3 catch rate; watch the ledger. Takes effect next session.
+Fable weekly quota hit 96% (shared weekly pool 51%). Line: "giảm gánh nặng bằng Opus 5.5". Applied: settings.json model `claude-opus-5-5[1m]` + `effortLevel: high` (Opus 5.5 defaults to medium); CLAUDE.md supervisor rule = Opus 5.5 default, `/model` to Fable 5.1 for layer-3 at Important (Critical: Fable 5.2 since 2026-11-14), hard root-cause, architecture; layer-2b subagent stays Fable 5.1; second-brain skill primary `claude-opus-5-5`. Opus 5.5 API price $4/$20 vs Fable $10/$50, same 1M context. Unmeasured: Opus 5.5 layer-3 catch rate; watch the ledger. Takes effect next session.

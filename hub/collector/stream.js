@@ -127,8 +127,11 @@ async function ingest(store, item, expired, options = {}) {
   if (previous && !reset && previous.head && previous.head !== head(item.file, Number(previous.head.split(':')[0]))) {
     reset = true; offset = 0;
   }
-  const ctx = { session: reset ? null : previous?.session_id, ts: Math.floor(item.stat.mtimeMs / 1000),
-    fallback: path.basename(item.file, '.jsonl') };
+  // v7: account = the Codex home the rollout came from; subagent = a Claude sub-agent transcript
+  // (<session>/subagents/*.jsonl), whose user rows are prompts from the supervisor, not from Line.
+  const ctx = { session: reset || offset === 0 ? null : previous?.session_id, ts: Math.floor(item.stat.mtimeMs / 1000),
+    fallback: path.basename(item.file, '.jsonl'), account: item.account || null,
+    subagent: item.kind === 'claude' && /[\\/]subagents[\\/]/i.test(item.file) };
   const legacy = item.kind === 'claude' && Boolean(store.get('SELECT 1 FROM legacy_replay WHERE path=?', key));
   // Most records have upstream IDs. Hash their (potentially large) private text
   // only if an event without an upstream ID actually needs a replay identity.
@@ -170,6 +173,8 @@ async function ingest(store, item, expired, options = {}) {
   };
   try {
     if (offset === 0) store.run('DELETE FROM ingest_occurrences WHERE path=?', key);
+    // ledger_warnings describe the ledger file as it is now: a re-read from the start recounts them.
+    if (offset === 0 && item.kind === 'ledger') store.run("DELETE FROM meta WHERE key='ledger_warnings'");
     for (const line of lines(item.file, offset, item.stat.size, { ...options, diagnostics, kind: item.kind, expired, raw: true })) {
       ctx.cachedId = null; ctx.recordTimestamp = null; ctx.recordType = null;
       ctx.raw = line.buffer;

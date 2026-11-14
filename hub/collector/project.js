@@ -5,22 +5,24 @@
 'use strict';
 const usage = { input_tokens: true, output_tokens: true, cache_read_input_tokens: true,
   cache_creation_input_tokens: true, output_tokens_details: { thinking_tokens: true } };
-const limit = { used_percent: true, resets_at: true };
+const limit = { used_percent: true, resets_at: true, window_minutes: true }; // v8: window_minutes
 const schemas = {
-  claude: { type: true, uuid: true, timestamp: true, sessionId: true, cwd: true, effort: true,
-    isMeta: true, isCompactSummary: true, isVisibleInTranscriptOnly: true,
+  // v7: gitBranch, isSidechain and payload.git are kept on >= 64 KiB records too (branch, turns, repo).
+  claude: { type: true, uuid: true, timestamp: true, sessionId: true, cwd: true, effort: true, gitBranch: true,
+    isMeta: true, isCompactSummary: true, isVisibleInTranscriptOnly: true, isSidechain: true,
     message: { id: true, model: true, content: [{ type: true, id: true, name: true,
       input: { skill: true, subagent_type: true } }], usage: { ...usage, iterations: [usage] } },
     attachment: { type: true, hookName: true, hookEvent: true, command: true,
       durationMs: true, exitCode: true, timedOut: true },
     subtype: true, compactMetadata: { trigger: true, preTokens: true, postTokens: true, durationMs: true } },
   codex: { type: true, timestamp: true, payload: { id: true, session_id: true, timestamp: true, cwd: true,
-    thread_source: true, parent_thread_id: true, model: true, effort: true, reasoning_effort: true,
+    thread_source: true, parent_thread_id: true, git: { branch: true, repository_url: true }, model: true, effort: true, reasoning_effort: true,
     type: true, started_at: true, completed_at: true, duration_ms: true, time_to_first_token_ms: true,
     info: { total_token_usage: { input_tokens: true, output_tokens: true, cached_input_tokens: true,
       cache_write_input_tokens: true, reasoning_output_tokens: true, total_tokens: true }, model_context_window: true },
     rate_limits: { primary: limit, secondary: limit } } },
-  review: { utc: true, dir: true, model: true, effort: true, verdict: true, findings: [{ severity: true }] }
+  // Intent: preserve mode at >=64 KiB. Status: v10. Next: none. Blockers: none. Confidence: ingestion regression.
+  review: { utc: true, dir: true, mode: true, model: true, effort: true, verdict: true, findings: [{ severity: true }] }
 };
 function project(buffer, kind) {
   const fallback = Symbol('deep JSON');

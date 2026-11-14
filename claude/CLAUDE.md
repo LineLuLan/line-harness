@@ -4,6 +4,8 @@ The shared rulebook is `~/.codex/AGENTS.md` (team policy version 1.0 plus Line's
 
 @C:/Users/ADMIN/.codex/AGENTS.md
 
+Full detail (dispatcher flags, model-routing rationale, review-gate mechanics, timeout doctrine, output diet, hook table, incident history): `~/.claude/docs/harness-reference.md`. Read it before changing the dispatcher, the review gate, model routing, or hooks.
+
 ## Harness Mapping
 
 | Claude Code | Codex |
@@ -13,137 +15,89 @@ The shared rulebook is `~/.codex/AGENTS.md` (team policy version 1.0 plus Line's
 | `~/.claude/hooks/*` | `.codex/hooks.json` (per repo) |
 | `~/.claude/skills/` | `~/.codex/skills/` |
 
-- The shared bank is installed on both sides from `D:\01_Workspaces\SKILLs-repository\_shared\` via `install-bank.ps1`. Reinstall with `-All` after bank updates. Replaced versions sit in `skills\.replaced-<timestamp>\`.
-- Two bank skills carry the `cx-` prefix on this side (`cx-code-review`, `cx-verify`) because the plain names collide with Claude Code built-ins.
-- MCP servers, verdicts, and usage rules: `D:\01_Workspaces\SKILLs-repository\_shared\MCP-GUIDE.md`. Active here: context7, github, codegraph, langfuse, neon, plus claude.ai connectors. fetch, sequential-thinking, and codex (MCP; `codex mcp-server` removed from Codex CLI, retired 2026-10-01) are removed.
+- Shared skill bank: `D:\01_Workspaces\SKILLs-repository\_shared\`, installed on both sides with `install-bank.ps1 -All`. Two bank skills carry the `cx-` prefix here (`cx-code-review`, `cx-verify`). Unused bank skills are turned off on the Claude side with `skillOverrides` in settings.json; Codex keeps them.
+- MCP servers: context7, github, langfuse, neon, plus claude.ai connectors. codegraph was removed 2026-11-15 (4 calls in 30 days; Codex cannot use MCP); restore steps in D:\Backups\codegraph-off-2026-11-15\RESTORE.txt. Use Read/Grep for code. Rules: `D:\01_Workspaces\SKILLs-repository\_shared\MCP-GUIDE.md`.
+- Do not recreate `~/AGENTS.md`. It was a stale converted copy of this file; the Codex desktop app's Claude import is the suspected source (2026-11-09).
 
 ## Worker Dispatch
 
-Two paths; pick by task shape:
+1. One-shot bounded tasks: `powershell -NoProfile -File C:\Users\ADMIN\.claude\bin\codex-do.ps1 -Dir <repo> -SpecFile <packet>` (long specs always through `-SpecFile`). `-Model <slug> -Effort <level>`, `-Fast` (medium effort), `-Sandbox read-only`, `-Account <name>`.
+   - Runs detached by default (outside Claude Code's process tree). `-Status`, `-Attach <runId|last>`, `-Cancel <runId|last>`. A toast plus sound fires when a run ends.
+   - Codex CLI 0.162.1 ignores `--disable multi_agent --disable multi_agent_v2` (verified 2026-11-09: the worker still has `collaboration.spawn_agent`; `agents.max_threads=0` is rejected). Say "Do not spawn sub-agents" in every packet's CONSTRAINTS; session discovery must pick the `thread_source: user` rollout.
+   - `-Resume <uuid|last>` only to continue the same packet (STOP blocker or review FAIL); at most 3 resumes, then a fresh session. New packets and reviewers always start fresh sessions.
+   - Exit 73 = no sandbox available; exit 72 = the run hit a sandbox failure. Use `-NoSandboxFallback` for Critical work.
+   - The worker writes only inside `-Dir`. Copies or installs outside it are the supervisor's step, after verification.
+   - Always pass the repo ROOT as `-Dir`, never a subfolder: files a sandbox run creates are owned by `CodexSandboxOffline` and only carry the capability SID of the `-Dir` used then, so a later run with another `-Dir` gets EPERM on them (2026-11-15, hub/tests/v9.test.js). One worker per repo at a time (the Dir lock); parallelize across repos only.
+2. Long or open-ended tasks: `Agent(subagent_type: "codex:codex-rescue")` in background mode; poll `/codex:status <jobId>`; cancel only when `.job.updatedAt` is frozen 5+ minutes. Write Windows paths with forward slashes in plugin prompts.
 
-1. One-shot bounded tasks — the lean helper:
-   `powershell -NoProfile -File C:\Users\ADMIN\.claude\bin\codex-do.ps1 -Dir <repo> "<packet>"`
-   No MCP spawn (measured 48.7s to 12.6s). `-Fast` drops effort to medium for mechanical edits (Line 2026-09-06: medium, not low, for stable output). `-Sandbox read-only` for analysis. Multi-line packets pass through stdin automatically (the command line truncates at the first newline - patched 2026-08-06). Long specs: always `-SpecFile <path>` — quotes in an inline spec argument kill the run (verified 2026-08-09).
-   Codex accounts (2026-09-28): `codex-acc.ps1 list|status|add <name>|login <name>|use <name>|run|env` keeps one CODEX_HOME per account under `~/.codex-accounts/<name>` (main = `~/.codex`); never copy auth.json. `codex-do.ps1` and `codex-review.ps1` use the active account, or `-Account <name>` per call. Switching is manual (Line). acc1/acc2 snapshots in `~/.codex/accounts` are dead and reserved.
-   Multi-turn (2026-10-01): every codex-do run prints `session: <uuid>`. `-Resume <uuid>` (or `-Resume last`) continues that worker session with its transcript (`codex exec resume`; same model, effort, sandbox, account). Resume ONLY to continue the same packet: answer a STOP RULE blocker or fix after a review FAIL. A new packet always starts a fresh session; reviewers are always fresh sessions; after 3 resumes of one session start fresh (context rot).
-   Detached by default (2026-10-10): codex-do launches the worker through WMI (outside Claude Code's process tree) with a run folder `~/.claude/state/runs/<runId>` (stdin, out.log, exit.txt, run.json, tree.json, session.txt). If the background task running codex-do is stopped (Esc, session end, low memory), the worker keeps running: reconnect with `-Attach <runId|last>`, stop it with `-Cancel <runId|last>` (exact-PID tree from tree.json only). The Dir lock refuses a second dispatch while that run's tree lives and prints both commands. `-Attached` restores the old in-tree launch per call. Codex sub-agents are disabled by default (`--disable multi_agent --disable multi_agent_v2`) so sessions stay resumable; `-AllowSubAgents` re-enables them. Self-tests: `bin/tests/codex-do-detach-selftest.ps1` (97 assertions) and `codex-do-resume-selftest.ps1`; the worker sandbox blocks WMI, so the supervisor runs the detached test.
-   Reliability (2026-10-12): every dispatch and review first runs a 1-second sandbox preflight (`codex-sandbox-lib.ps1`): elevated, else unelevated (still blocks writes outside -C), else exit 73 without a model call. `-NoSandboxFallback` (or `CODEX_DO_NO_FALLBACK=1`) forbids the fallback: use it for Critical-tier work. A finished run whose output has codex's own timestamped router ERROR line for the sandbox exits 72 (review: UNKNOWN). Detached runs fire a Windows toast plus sound when they finish (`codex-run-notify.ps1`, log `~/.claude/state/runs/notify.log`). `codex-do.ps1 -Status [-Hours N]` lists runs as starting, running, STALE (no output 10 min), done, failed, DIED; the statusline shows running/stale/died counts. Root cause of the 2026-10-12 outage: the Codex desktop app locks its computer-use runtime; its autostart is disabled.
-   Current docs (2026-10-12, Line): call context7 (resolve-library-id, then query-docs) before any answer, packet, or edit that depends on a library, SDK, framework, CLI, or external API. Every codex-do packet carries `DOCS CHECKED: <lib> <version> via context7 <date>` or `DOCS CHECKED: n/a - <reason>`; the PreToolUse hook `hooks/packet-docs-guard.ps1` denies a dispatch without it (-Status/-Attach/-Cancel/-Resume exempt). Scheduled task `MCP-Weekly-Update` (Mondays 09:00, headless) runs `bin/mcp-weekly-update.ps1`: bumps pinned MCP npm versions in `~/.codex/config.toml` (backup `config.toml.bak-mcpweekly-*`, keeps 4, validates with `codex mcp list`, restores on failure), log `~/.claude/state/mcp-weekly-update.log`, toast on change; codegraph's global install is report-only (`codegraph upgrade` with no Claude session open). Claude-side context7 runs `@latest`. codex-review disables every MCP server that has a `[mcp_servers.<name>]` table (plugin servers have none; overriding them breaks the config).
-   The worker writes only inside its `-Dir`. Any copy or install outside that boundary is the supervisor's step, after verification (verified 2026-08-09: a sandboxed worker cannot write to the home directory).
-2. Long or open-ended tasks — the official plugin:
-   Write every Windows path in a plugin prompt with forward slashes: the rescue forwarder strips backslashes (verified 2026-10-01: the .claude\bin path arrived as C:UsersADMIN.claudebin and the worker refused). `--resume` continues the last rescue thread with memory (verified 2026-10-01 on CLI 0.157.1).
-   `Agent(subagent_type: "codex:codex-rescue")` with background mode; poll `/codex:status <jobId>`; cancel with `/codex:cancel` only when `.job.updatedAt` is frozen for 5 or more minutes while running. `/codex:review` and `/codex:adversarial-review` for review passes.
+Every packet: run a packet check (SUCCESS CRITERIA vs CONSTRAINTS, NON-GOALS, PATTERNS, fixtures; no contradictions; template headings present) and add `PACKET CHECK: ok`. Add `DOCS CHECKED: <lib> <version> via context7 <date>` or `DOCS CHECKED: n/a - <reason>` (`codex-do.ps1` lint exits 74 without it). Call context7 before any answer, packet, or edit that depends on a library, SDK, CLI, or external API. Print the full packet before dispatch. Verify worker output against the packet's SUCCESS CRITERIA; never trust the self-report. Kill worker processes only by exact PID.
 
-Before printing a packet, run a packet check: compare SUCCESS CRITERIA and REQUIREMENTS against CONSTRAINTS, NON-GOALS, PATTERNS, and fixtures for any rule that contradicts another (shape caps, schema, fixture content), rewrite each conflict into one rule, confirm the template headings exist (a `SUCCESS CRITERIA:` block is required by codex-review.ps1; 2026-10-09 a packet titled REQUIREMENTS made layer 2 return UNKNOWN), and add a line `PACKET CHECK: ok` (2026-10-09: three worker STOPs in one day came from self-contradicting packets).
-Print the full task packet before every dispatch. Verify worker output against the packet checklist; never trust the self-report. Kill worker processes only by exact PID, never by name pattern (incident 2026-08-08: a name-pattern kill destroyed a running delegation).
+Important and Critical packets also run `~/.claude/docs/packet-checklist.md` and add `CHECKLIST: ok`. `codex-do.ps1` lints every new packet and denies Important/Critical packets without it.
 
-Shell commands (2026-10-09): long or multi-line commands go through the PowerShell tool or a script file, never the Bash tool (Bash fails with `unexpected EOF` on long commands, also for Line's `!` commands; enforced 2026-10-12 by the PreToolUse hook bash-heredoc-guard.ps1, which denies Bash heredocs). Scheduled tasks must launch through `conhost.exe --headless`, or Windows Terminal opens a window. Claude Code kills the whole process tree of a background task when that task stops (Esc, session end, low memory; verified 2026-10-09 by experiment): never start a long-lived process with Start-Process from a background task; codex-do launches detached through WMI for that reason.
+Packet and RAM gates: exit 74 = packet lint errors (`-AllowLarge` for packets over 8 KB); the RAM check only reports commit headroom and never blocks, waits, or stops a session (Line, 2026-11-14: sessions always run; if memory truly runs out, Windows ends the process itself). Do not add any harness step that stops or delays work because of low RAM. Write the ledger line with `bin/ledger-add.ps1 -SpecFile <packet>` (links the line to its codex-do runs; without it Hub model compare has no run outcomes - found 2026-11-14: 0 of 378 lines linked).
+
+Shell: long or multi-line commands go through the PowerShell tool or a script file, never Bash (heredocs are denied by a hook). Scheduled tasks launch through `conhost.exe --headless`. Never start a long-lived process with Start-Process from a background task.
 
 ## Model Routing
 
-Supervisor (Line, 2026-09-28): Claude Opus 5.5 high is the session default (settings.json `claude-opus-5-5[1m]`, `effortLevel: high` - Opus 5.5 defaults to medium, keep it explicit). Switch to Claude Fable 5.1 with `/model` for layer-3 verification at Important and Critical, hard root-cause work, and architecture decisions; the layer-2b subagent stays Fable 5.1 so it differs from the worker. Reason: the Fable weekly quota hit 96% on 2026-09-28 while the shared weekly pool sat at 51%. Within a tier, do not downgrade further for cost; supervisor tokens buy judgment.
+| Work | Model |
+| --- | --- |
+| Planning, packets, verdicts, ship, memory, Line-facing replies | Opus 5.5 high (session default) |
+| Layer-3 verification at Important, hard root-cause, architecture | Fable 5.1 high via `/model` |
+| Critical: layer 3, the Fable review subagent, and the pre-dispatch packet read (Line, 2026-11-14) | Fable 5.2 high (`/model claude-fable-5-2`). The Agent tool only takes the `fable` alias; on 2026-11-14 a `fable` subagent reported itself as `claude-fable-5-2` (model self-report), so Fable subagents already run 5.2 - re-check if the alias changes |
+| Standard-A (1-2 files, runnable VALIDATE, single-branch logic, worked examples) | `gpt-6-sol` high |
+| Standard-B (3+ files, long command chains, repo discovery, vague VALIDATE, prior Sol STOP/FAIL), Important, Critical | `gpt-6-astra` high |
+| Exploration | `gpt-6-luna` max first, then `gpt-6-sol` ultra for synthesis |
+| Fallback after a failed high attempt | `gpt-6-astra` xhigh, one attempt, then replan |
 
-Worker default: `gpt-6-sol` high on the priority tier for Skip and Standard-A. `gpt-6-astra` high for Standard-B, Important, and Critical (`-Model gpt-6-astra`); `gpt-6-astra` xhigh when a high attempt fails. Standard splits by task shape, decided and written into the packet header before dispatch: Standard-A = one or two files, a runnable VALIDATE (test, build, or diff-against-fixture), single-branch logic, worked input/output examples in the packet. Standard-B = any of: three or more files, a long command chain (build, migrate, docker, start a service then probe it), the worker must discover context in the repo, VALIDATE is missing or vague, or Sol already STOPped or FAILed on a similar task. Exploration: `gpt-6-luna` max first (tier 1), `gpt-6-sol` ultra for synthesis (tier 2). Pass `-Model <slug>` and `-Effort <level>` to codex-do.ps1 and codex-review.ps1. The `gpt-5.6-*` line is retired (Codex labels it older; 5.6 promo pricing ends 2026-11-21).
+Never start at xhigh. Write the tier into the packet header before dispatch. The `gpt-5.6-*` line is retired.
 
-xhigh policy - use `gpt-6-astra` xhigh ONLY for: (1) extremely dangerous work (security, payment, auth, data migration at the Critical review tier); (2) difficult debugging that resists a high attempt; (3) a super-hard task where a high attempt already failed. Never start at xhigh.
+## Route by quota pace
 
-| Task type | Model and effort | Dispatch |
-| --- | --- | --- |
-| Planning, packets, verdict reading, ship, memory, Line-facing replies | Opus 5.5 high (session default) | Inline, any size |
-| Layer-3 verification at Important/Critical, hard root-cause, architecture decisions | Fable 5.1 high via `/model` | Inline |
-| Standard-A: one or two files, runnable VALIDATE, single-branch logic | `gpt-6-sol` high, priority | codex-do, foreground, 20-minute timeout |
-| Exploration tier 1 - locate, list, count, inventory, single-file reads, bulk mechanical edits | `gpt-6-luna` max, priority (`-Model gpt-6-luna -Effort max`; Luna has no ultra) | Read-only sandbox where possible; signature-first reading (codegraph or line ranges), never whole files just to explore |
-| Exploration tier 2 - cross-module synthesis, conflicting evidence, root-cause hypotheses, or a tier-1 answer the supervisor could not confirm | `gpt-6-sol` ultra, priority (`-Model gpt-6-sol -Effort ultra`; there is no GPT-6 Terra) | Same sandbox rules. Start at tier 1 unless the question is synthesis from the start |
-| Standard-B: three or more files, long command chains, repo discovery, vague VALIDATE, or a prior Sol STOP/FAIL | `gpt-6-astra` high, priority (`-Model gpt-6-astra`) | codex-do, foreground, 20-minute timeout |
-| Multi-file, API contract, shared module (Important tier) | `gpt-6-astra` high, priority (`-Model gpt-6-astra`) | codex-do, foreground, 20-minute timeout |
-| Security, payment, auth, migrations | `gpt-6-astra` high, priority + Critical gates (two passes, human approval, no autopilot, no background) | codex-do, foreground only |
-| Super-hard fallback | `gpt-6-astra` xhigh, priority, one attempt with checklist (`-Model gpt-6-astra -Effort xhigh`) | Then stop and replan |
-| Long multi-turn or open-ended worker sessions | per rows above | codex-rescue plugin (background, app-server); the codex MCP server path is retired |
+Pace = used % / % of the window elapsed. Daily budget per side = 15% of the week; over budget = today's burn above 20%. Check pace at session start and before each Important packet (statusline or Line Hub "Today's routing"). These rules override the routing table; the Claude bullets win for workers and reviews when both sides are stressed.
 
-Hard-work phase map (algorithm, debugging, integration, phase-by-phase owners): `D:\01_Workspaces\SKILLs-repository\CLAUDE.md`, section "Hard Work - Phase Map".
+<!-- ontology:quota:begin -->
+| Codex quota | Route |
+| --- | --- |
+| Pace <= 1.0 and used < 70% | Normal routing table. |
+| Pace > 1.0 to 1.3, used 70-84%, or over daily budget | Standard-B with <= 3 files and a runnable VALIDATE goes to `gpt-6-sol` high. No Luna exploration (Claude Explore subagent). Layer 2 = Fable subagent. |
+| Pace > 1.3 or used 85-94% | Codex for Important/Critical. Standard work goes to an Opus subagent with the same packet (if Claude is stressed too, see below). No resumes. |
+| Used >= 95% | No Codex. Opus subagent = worker, Fable subagent = layer 2, ledger `worker=opus`. |
+
+- Claude 7-day pace > 1.2 or used >= 70%: no Opus subagent workers; layer 2 = Astra; Fable only for Critical layer 3; supervisor edits <= 20 lines.
+- Both sides stressed (Claude rule above active and Codex not >= 95%): Standard-A and Standard-B go to `gpt-6-sol` high and are never deferred (Line, 2026-11-15).
+- Codex used >= 95% while the Claude rule is active: no new packets; report to Line. This is the only stop rule.
+- Claude 5-hour used >= 80%: finish the current check, update the handoff, pause Claude work until the window resets.
+- Codex desktop and CLI sessions count against the budget. One session over 50M tokens: stop and report to Line.
+<!-- ontology:quota:end -->
 
 ## Paid API Budget
 
-OpenRouter credits (`OPENROUTER_API_KEY` in `.env.local`) pay for exactly one thing: runs of the model under test, `openai/gpt-6-luna` (classifier + chat in eval v3). Nothing else goes to OpenRouter: no judge panel, no labelling, no probe of another model, no "pilot". Judge panels (Opus 5.5, GPT-6 Astra, GPT-6 Sol, GPT-6.1 Sol) run on subscription quota as Claude CLI subagents (Agent tool, model opus) and Codex sessions (codex-do packets), as the 2026-10-08 panel did. "chạy" or "chạy pilot" never widens this; an exception exists only when Line names the model and the budget in the current conversation, and the command then carries `OPENROUTER_GUARD_OVERRIDE=1`. Enforced by the PreToolUse hook `hooks/openrouter-model-guard.ps1` (denies `label-judges.mjs` real runs, `run-panel.ps1`, and any OpenRouter command naming a non-Luna model id). Incident: 2026-10-25, a 40-row judge pilot sent to OpenRouter cost 0.94 USD from the wallet.
+OpenRouter credits pay for exactly one thing: runs of the model under test, `openai/gpt-6-luna`. No judge panels, labelling, probes of other models, or pilots go to OpenRouter; those run on subscription quota (Claude subagents, codex-do). "chạy" or "chạy pilot" never widens this. An exception needs Line to name the model and budget in the current conversation, and the command carries `OPENROUTER_GUARD_OVERRIDE=1`. Enforced by `hooks/openrouter-model-guard.ps1`.
 
 ## Review Gate
 
-The implementer never grades itself. Three layers, each of a different nature, and the supervisor layer is mandatory at every tier (Line, 2026-09-08: "Codex checking Codex can both be wrong"):
+The implementer never grades itself. Layers: (1) deterministic gates, (2) fresh-session model review, (3) supervisor verification: compare the diff to every SUCCESS CRITERIA line, re-run VALIDATE, and execute the change for real. Layer 3 is never skipped and never delegated to Codex.
 
-1. Deterministic gates (no model): typecheck, lint, secret scan, console.log scan. Run by `codex-review.ps1` before any model review.
-2. Model review in a fresh session: sees only the diff and the packet SUCCESS CRITERIA, answers PASS or FAIL with file:line evidence. Same model as the worker counts as a different context, not a different mind; it is the weakest layer.
-3. Supervisor verification (Fable, a different model and provider): compare the diff against EVERY SUCCESS CRITERIA line, re-run VALIDATE yourself, and execute the change at least once for real (run the script, hit the endpoint, render the page). Reading is not verification. This layer never gets skipped and never gets delegated back to Codex.
-
-On FAIL the worker fixes and a NEW reviewer session runs; never reuse a reviewer session. After 3 FAILs stop and report to Line. The supervisor reads the verdict, holds the evidence, and decides to ship; no reviewer ships.
-
-| Tier | Trigger | Reviewer | Command |
-| --- | --- | --- | --- |
-| Skip | diff under about 20 lines of config, typo, rename, docs | layer 3 only (supervisor runs VALIDATE) | - |
-| Standard-A and Standard-B | everything else (see Model Routing for the A/B split; the worker model differs, the review does not) | layers 1+3 only (Line, 2026-09-08: routine work does not earn a model review). Supervisor MAY run layer 2 when the diff exceeds about 150 lines or touches multi-branch logic, and must log why in the ledger | `codex-review.ps1 -Dir <repo> -SpecFile <packet> -SkipModel` for gates only; drop `-SkipModel` to add layer 2 |
-| Important | multi-file, API contract, shared module | layers 1+2 (`gpt-6-astra` high, fresh Codex session; layer 2 is mandatory here - the ledger on 2026-09-19 showed 6 of 11 Important tasks skipped it) + one Fable 5.1 subagent in a fresh context (different provider), then layer 3 | `codex-review.ps1` then `Agent(general-purpose)` with diff + criteria |
-| Critical | security, payment, auth, migration | Important + Line approves in writing | same, then wait for Line |
-
-`codex-review.ps1` runs the deterministic gates first (typecheck or lint when the repo defines them, secret and console.log scan of the diff), then `codex review` in a fresh session with the diff and the packet criteria embedded in the prompt (the CLI rejects scope flags together with a custom prompt); verdict = explicit VERDICT line, else any [P0]/[P1] finding = FAIL, else PASS. Reviewer instruction: report only gaps that affect correctness or the stated criteria; style is optional. Keep Fable quota for judgment work: Standard tier never spends Claude tokens.
-
-Review ledger (decided 2026-09-08): after every delegated task append one line to `~/.claude/state/review-ledger.log`: `date|tier (Skip, Standard-A, Standard-B, Important, Critical)|layer2 ran? (yes/no)|defects found by L1|by L2|by L3|note (name the worker model)`. After 20 Standard-B entries compare defect counts against Standard-A to decide whether Astra earns its cost there. After 20 entries the supervisor reports the catch rate per layer to Line and the tier rules get adjusted by that data, not by feel.
-
-## Context Thresholds
-
-Under 60 percent: proceed. 60-69: checkpoint. 70-79: offer `/handoff` before a major task. 80 or more: handoff or fresh session is mandatory. Enforced by the `context-guard.ps1` prompt hook since 2026-09-08: the statusline writes the percentage it renders to a cache the hook reads. Compaction rules: the `strategic-compact` skill.
-
-## Timeout Doctrine
-
-Measure heartbeats, not wall clocks. A slow job and a dead job are different things.
-
-- Path 1 (codex-do, background): the task output file is the heartbeat. Its last-write time still moves = the job is alive; let it run. Unchanged for 5 or more minutes while the process exists = zombie; stop it by exact PID and salvage.
-- Path 1 (foreground): only for tasks expected under 5 minutes, with the 20-minute cap. Never foreground a task that might outgrow the cap.
-- Path 2 (codex-rescue): poll `.job.updatedAt` per AGENTS.md section 3.
-- On any timeout or kill: check for partial results FIRST ([founder]'s salvage rule). Finished files beat a rerun.
-- Every packet carries STOP RULES ([teammate A]'s rule) so a confused worker reports and halts instead of grinding.
-
-## Thinking Ladder and Output Diet
-
-Match reasoning depth to risk (from [teammate N]'s ladder, adopted 2026-08-09):
-
-| Work | Trigger to use |
+<!-- ontology:review-tiers:begin -->
+| Tier | Layers |
 | --- | --- |
-| Normal implementation | none |
-| Multi-step logic, edge cases, API design | "think hard" |
-| Architecture decisions, complex debugging | "think harder" |
-| Security, payment, migrations, critical production code | "ultrathink" |
+| Skip (under ~20 lines of config, typo, docs) | 3 |
+| Standard-A / Standard-B | 1 + 3 (`codex-review.ps1 -SkipModel`); layer 2 optional over ~150 lines, logged |
+| Important (multi-file, API contract, shared module) | 1 + 2 (`gpt-6-astra`, mandatory) + a Fable 5.1 subagent + 3 |
+| Critical (security, payment, auth, migration) | Important + Line approves in writing |
+<!-- ontology:review-tiers:end -->
 
-Output diet — command output is context budget (from [teammate N]'s RTK principle):
-- Cut command output before it enters context: tail the last 30 lines, or show failures only.
-- Never paste a full log when one summary line answers the question.
-- Read files by line range when the target is known. Do not read whole files to explore.
+Important packets get a pre-dispatch read by a Fable subagent (packet only, about 5 minutes). At Critical every Fable step uses Fable 5.2.
 
-## Interview-First Rule
+On FAIL the worker fixes and a NEW reviewer session runs. After 2 FAILs at Important/Critical (3 at Standard) stop, report to Line, and redesign. After every delegated task append one line to `~/.claude/state/review-ledger.log` with `bin/ledger-add.ps1`: `date|tier|layer2 yes/no|L1|L2|L3|note|worker=<model>|type=<ui|collector|review|research|docs|config|other>|fail_rounds=<int>|findings=L1:<n>,L2:<n>,L3:<n>`. Old 7-field lines stay valid.
 
-Before starting work, interview Line with concrete options (plan-mode style: 2-4 questions, each with choices, the recommended choice first) when ANY of these is true:
+## Working Rules
 
-1. The request has two or more readings, and a wrong guess costs rework.
-2. A real fork exists: several valid approaches with different trade-offs (model choice, architecture, scope, priority).
-3. The task is large: a new feature, a new spec, or a system change. Open with the interview to lock intent before planning.
-
-Otherwise do not ask. Clear bounded tasks proceed directly. Minor choices (naming, formatting, defaults) are decided and noted, not asked. Autonomous and background runs never block on questions.
-
-## Startup Checklist
-
-1. Confirm the working directory and target project.
-2. Read the nearest repository `AGENTS.md` and the newest `.handoff/` file.
-3. Route the task through `team-router` (TwoHearts work goes to `twohearts-engineering-standards` first).
-4. Check context usage before a major task.
-5. State the plan before the first tool call.
-
-## Active Hooks on This Machine
-
-| Hook | Trigger | Purpose |
-| --- | --- | --- |
-| `codex-delegation-reminder.ps1` | UserPromptSubmit | Re-injects the delegation hard rule every turn |
-| `context-guard.ps1` | UserPromptSubmit | Reads the statusline context cache (ctx-<session>.json under the ultrathink-status temp dir) and injects CHECKPOINT (60-69%), OFFER HANDOFF (70-79%), or HANDOFF MANDATORY (80%+); silent below 60% or when the cache is older than 15 min (added 2026-09-08) |
-| `codex-job-watcher.ps1` | SessionStart | Optional beep when a plugin job finishes |
-| `codegraph-init-check.ps1` | SessionStart | Suggests one-time `codegraph init` in unindexed repos |
-| `track-tools.js` | PostToolUse | Feeds the UltraThink statusline |
-| `notify-sound.ps1` | Notification, Stop | Plays D:\04_Assets\dragon-studio-new-notification-3-398649.mp3 — 1x when waiting for Line, 3x when a task finishes (beep fallback if the file is missing) |
-
-Settings backups: `settings.json.bak-*`. Machine snapshot before go-live: `D:\Backups\machine-snapshot-2026-08-08.zip` (555 MB). Old rulebooks: `AGENTS.md.bak-golive`, `CLAUDE.md.bak-golive`.
+- Context (Line, 2026-11-15): keep working; compaction handles long sessions. Never ask Line to `/clear` or start a fresh session. At 85%+ update the newest handoff file silently and continue (`context-guard.ps1`).
+- Liveness: measure heartbeats, not wall clocks. A background run whose output has not changed for 5+ minutes while its process lives is a zombie: stop it by exact PID, salvage partial results first. Every packet carries STOP RULES.
+- Output diet: tail long output, never paste full logs, read files by line range when the target is known.
+- Evidence labels: every claim about Line's machine says "đã kiểm tra trên máy" (ran it here), "theo một nguồn, chưa kiểm" (one source), or "tôi đoán" (inference). Web research findings carry one of: read (opened the source), cited (a source quotes it), located (seen in a listing only), contradicted, not found.
+- Node 24: run test folders as `node --test "tests/*.test.js"`; `node --test tests/` fails with MODULE_NOT_FOUND.
+- Interview first (2-4 questions with options, recommended first) when a request has two readings, a real fork exists, or the task is a new feature, spec, or system change. Otherwise act; decide and note minor choices.
+- Startup: confirm the working directory, read the nearest repo `AGENTS.md` and newest `.handoff/` file, route through `team-router` (TwoHearts work goes to `twohearts-engineering-standards` first), check context before a major task, state the plan before the first tool call.

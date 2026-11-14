@@ -4,11 +4,11 @@
 - [Line git authority](line-git-authority.md) — KHÔNG commit/push ở bất kỳ đâu trừ khi Line ra lệnh đích danh trong hội thoại hiện tại
 
 - [Codex AGENTS.md rules](codex-agents-rules.md) — shared "Autonomous Founder Engineer" operating + safety rules Claude follows for ecosystem consistency
-- [Codex/Claude ecosystem](codex-claude-ecosystem.md) — Codex = main coding (GPT-6 Sol for Skip/Standard-A, GPT-6 Astra for Standard-B/Important/Critical since 2026-09-28; exploration Luna max then Sol ultra); Claude Opus 5.5 high = supervisor default since 2026-09-28, Fable 5.1 via /model for L3 Important/Critical + hard root-cause; how to invoke `codex exec`
+- [Codex/Claude ecosystem](codex-claude-ecosystem.md) — Codex = main coding (GPT-6 Sol for Skip/Standard-A, GPT-6 Astra for Standard-B/Important/Critical since 2026-09-28; exploration Luna max then Sol ultra); Claude Opus 5.5 high = supervisor default since 2026-09-28, Fable 5.1 via /model for L3 Important (Critical: Fable 5.2 since 2026-11-14) + hard root-cause; how to invoke `codex exec`
 - **GO-LIVE 2026-08-08**: máy chạy bank chung (75/78 skills) + Team AGENTS.md v1.0 + addendum §15 + plugin codex-rescue + hooks (delegation-reminder, codegraph-init-check) + codegraph indexed 7 TwoHearts repos; khôi phục từ D:\Backups\machine-snapshot-2026-08-08.zip (555MB); repo SKILLs-repository local KHÔNG push (chờ team)
 - [Codex setup overview](codex-setup-overview.md) — inventory of ~/.codex: config.toml, MCP servers, 128 skills, rules
 - [Claude mirrors Codex](claude-mirrors-codex.md) — .claude now mirrors .codex: CLAUDE.md imports AGENTS.md, 5 MCP servers wired, 128 skills copied (cx-code-review/cx-verify renamed)
-- [UltraThink statusline](ultrathink-statusline.md) — statusline v2 + 2026-09-07 fable wk bar, dispatch theo session, icon model; 2026-09-08 context-guard hook (ctx cache → cảnh báo 60/70/80 mỗi lượt)
+- [UltraThink statusline](ultrathink-statusline.md) — statusline v2 + 2026-09-07 fable wk bar, dispatch theo session, icon model; 2026-09-08 context-guard hook (ctx cache; từ 15/11 im dưới 85%, chỉ tự cập nhật handoff)
 - [Background task keep-alive](background-task-keepalive.md) — user rule: keep session alive until background work finishes, report result, then continue (also in AGENTS.md §7)
 - [No AI co-author commits](no-ai-coauthor-commits.md) — từ 2026-08-08 commit KHÔNG kèm Co-Authored-By Claude (Line đổi quy ước, theo phe [teammate D])
 - [Line simple language](line-simple-language.md) — giải thích kiểu STE: câu ngắn, mỗi câu một ý, cả khi chat tiếng Việt
@@ -30,5 +30,12 @@
 - [Codex multi-turn](codex-multi-turn.md) — 1/10: bỏ codex MCP (gỡ ở CLI 0.154); nhiều lượt = codex-do -Resume (session id lọc theo cwd); plugin rescue nuốt dấu \ → dùng / trong prompt
 - [Harness worker deaths](harness-worker-deaths.md) — 9/10: Claude Code giết cả cây tiến trình của lệnh nền khi dừng nó (đã thử nghiệm); worker phải khởi động qua WMI; Codex sub-agent làm hỏng resume
 - [Harness upgrade mandate](harness-upgrade-mandate.md) — 10/10 Line: cứ nâng cấp + fix bug harness đến nơi đến chốn, báo ngắn; vẫn hỏi trước việc ngoài harness/khó hoàn tác
+- [Line Harness repo](line-harness-repo.md) — 7/11: backup public LineLuLan/line-harness (MIT), local D:\01_Workspaces\line-harness; đã lọc token; Line tự chạy bước gom + push
+- [context7 luôn được phép](feedback-context7-always-allowed.md) — 9/11 Line: dùng context7 thoải mái, không cần hỏi; đã thêm allow rule
 - [Không nói quá chắc](feedback-no-overclaim.md) — ghi rõ mức bằng chứng: đã kiểm trên máy / một nguồn / đoán; 14/10 lỡ khẳng định "Windows sẽ tự thay chứng chỉ"
+- [Codex hết quota 11/11](codex-quota-out-2026-11-11.md) — ~19 giờ không có Codex; dev chỉ bằng Opus + Fable, L2 = Fable thay Astra
 - [Harness reliability 12/10](harness-reliability-2026-10-12.md) — app Codex desktop khóa runtime -> sandbox từ chối mọi lệnh (đã tắt autostart + đóng app); task Scheduler bọc conhost --headless hết popup; hook chặn heredoc; preflight sandbox đang review
+- [RAM thấp không sao](feedback-ram-no-worry.md) — 14/11 Line: session luôn chạy; harness không bao giờ chặn/chờ/tắt vì RAM (gate chỉ cảnh báo)
+- [Line Hub style](feedback-line-hub-style.md) — giữ style v4 dày chi tiết + trang Models; Line chê v5 (tile, khung ALL CLEAR, padding)
+- [Harness ontology plan](harness-ontology-plan.md) — 15/11: codegraph đã gỡ; thứ tự R1 fix -> harness ontology (phải đo mạnh hơn) -> SkillEvaluator Tier 1 local
+- [Không nhắc /clear](feedback-no-clear-nag.md) — 15/11 Line: cứ làm tiếp, compact lo; từ 85% chỉ tự cập nhật handoff, không hỏi

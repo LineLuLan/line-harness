@@ -7,13 +7,13 @@ Cập nhật 2026-09-28 (Line: dòng GPT-6; Sol cho Skip và Standard-A, Astra c
 | Vai | Ai | Model | Làm gì |
 | --- | --- | --- | --- |
 | Line | người | - | Ra ý định, quyết định fork, duyệt tier Critical, ra lệnh commit và push |
-| Supervisor | Claude Code | Opus 5.5 high mặc định; Fable 5.1 qua `/model` cho lớp 3 Important/Critical, root-cause khó, kiến trúc | Interview, spec, decompose, packet, đọc verdict, quyết định ship, memory |
+| Supervisor | Claude Code | Opus 5.5 high mặc định; Fable 5.1 qua `/model` cho lớp 3 Important (Critical: Fable 5.2 since 2026-11-14), root-cause khó, kiến trúc | Interview, spec, decompose, packet, đọc verdict, quyết định ship, memory |
 | Worker | Codex CLI | Skip, Standard-A: GPT-6 Sol high. Standard-B, Important, Critical: GPT-6 Astra high qua `-Model`. High thất bại: Astra xhigh. `-Fast` = medium. Fast tier luôn bật | Viết code trong sandbox, tự test, báo diff và kết quả validate |
 | Explorer | Codex CLI | Tầng 1 tìm, liệt kê, đếm, sửa hàng loạt: GPT-6 Luna max. Tầng 2 tổng hợp nhiều module, bằng chứng mâu thuẫn, root-cause: GPT-6 Sol ultra | Khám phá, gom bằng chứng, sửa hàng loạt cơ học |
 | Lớp 1, cổng máy móc | Script `codex-review.ps1` | Không có model | Typecheck, lint, quét secret, quét console.log. Chạy trước mọi review |
 | Lớp 2, reviewer | Codex CLI, session mới | Astra high | Đọc diff và tiêu chí, trả PASS hoặc FAIL. Chỉ Important và Critical |
-| Lớp 2b, reviewer khác hãng | Claude subagent, context mới | Fable 5.1 | Chỉ Important và Critical |
-| Lớp 3, supervisor kiểm chứng | Claude Code | Opus 5.5 ở Skip/Standard; Fable 5.1 ở Important/Critical | Đối chiếu từng tiêu chí, chạy lại validate, chạy thật. Bắt buộc mọi tier |
+| Lớp 2b, reviewer khác hãng | Claude subagent, context mới | Fable 5.2 (alias `fable`, từ 14/11) | Chỉ Important và Critical |
+| Lớp 3, supervisor kiểm chứng | Claude Code | Opus 5.5 ở Skip/Standard; Fable 5.1 ở Important (Critical: Fable 5.2 since 2026-11-14) | Đối chiếu từng tiêu chí, chạy lại validate, chạy thật. Bắt buộc mọi tier |
 
 ## Các bước
 

@@ -23,7 +23,6 @@
       "PowerShell(codex --version)",
       "mcp__context7",
       "mcp__sequential-thinking",
-      "mcp__codegraph",
       "mcp__github__get_me",
       "mcp__github__get_file_contents",
       "mcp__github__get_commit",
@@ -53,7 +52,9 @@
       "mcp__codex",
       "PowerShell(codex:*)",
       "Bash(codex:*)",
-      "PowerShell(powershell -NoProfile -File C:\\Users\\ADMIN\\.claude\\bin\\codex-do.ps1:*)"
+      "PowerShell(powershell -NoProfile -File C:\\Users\\ADMIN\\.claude\\bin\\codex-do.ps1:*)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__query-docs"
     ],
     "deny": [
       "Bash(git commit --no-verify*)",
@@ -81,6 +82,76 @@
     ],
     "defaultMode": "auto"
   },
+  "skillOverrides": {
+    "ai-cost-per-order": "off",
+    "ai-research-lead": "off",
+    "ai-sdk": "off",
+    "api-designer": "off",
+    "api-error-handling": "off",
+    "api-rate-design": "off",
+    "api-versioning": "off",
+    "bun": "off",
+    "cloudflare": "off",
+    "conversation-data-preprocessing": "off",
+    "customer-intelligence-memory": "off",
+    "database-indexing": "off",
+    "drizzle": "off",
+    "drizzle-kit": "off",
+    "gsd-execute": "off",
+    "gsd-plan": "off",
+    "gsd-verify": "off",
+    "impeccable-animate": "off",
+    "impeccable-audit": "off",
+    "impeccable-clarify": "off",
+    "impeccable-distill": "off",
+    "impeccable-harden": "off",
+    "impeccable-normalize": "off",
+    "impeccable-polish": "off",
+    "issue-tree": "off",
+    "lint-format": "off",
+    "make-decision": "off",
+    "mece": "off",
+    "model-evals-strategy": "off",
+    "model-intelligence-watch": "off",
+    "model-training-strategy": "off",
+    "monorepo-config": "off",
+    "neon": "off",
+    "nextjs": "off",
+    "openai": "off",
+    "playwright": "off",
+    "pnpm": "off",
+    "postgresql": "off",
+    "pr-review": "off",
+    "pre-mortem": "off",
+    "promptfoo": "off",
+    "radix-ui": "off",
+    "react": "off",
+    "reasoning-frameworks": "off",
+    "sqlite": "off",
+    "tailwind": "off",
+    "task-delegation": "off",
+    "tool-calling-flow-audit": "off",
+    "turso": "off",
+    "ui-ux-pro-max": "off",
+    "vc-audit-context": "off",
+    "vc-audit-plans": "off",
+    "vc-audit-vc": "off",
+    "vc-generate-context": "off",
+    "vc-generate-plan": "off",
+    "vercel-react-native-skills": "off",
+    "vite": "off",
+    "weighted-matrix": "off",
+    "zod": "off",
+    "ai-architecture-review": "off",
+    "audit": "off",
+    "backend": "off",
+    "cloud": "off",
+    "database": "off",
+    "frontend": "off",
+    "pre-deploy": "off",
+    "security": "off",
+    "test-sweep": "off"
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -88,33 +159,34 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\git-push-guard.ps1\"",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\packet-docs-guard.ps1\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\openrouter-model-guard.ps1\"",
-            "timeout": 5
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\shell-guards.ps1\"",
+            "timeout": 15
           }
         ]
       },
       {
-        "matcher": "Bash",
+        "matcher": "Edit|Write|MultiEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\bash-heredoc-guard.ps1\"",
-            "timeout": 5
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\edit-delegation-guard.ps1\" -Mode check",
+            "timeout": 10
           }
         ]
       }
     ],
     "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"C:\\Users\\ADMIN\\.claude\\hooks\\inel-event.js\"",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      },
       {
         "matcher": "mcp__.*|Skill|Agent",
         "hooks": [
@@ -131,7 +203,7 @@
           {
             "type": "command",
             "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\quality-typecheck.ps1\"",
-            "timeout": 25
+            "async": true
           },
           {
             "type": "command",
@@ -148,6 +220,12 @@
             "type": "command",
             "command": "powershell -NoProfile -Sta -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\notify-sound.ps1\" -Repeat 1",
             "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "node \"C:\\Users\\ADMIN\\.claude\\hooks\\inel-event.js\"",
+            "timeout": 10,
+            "async": true
           }
         ]
       }
@@ -159,6 +237,18 @@
             "type": "command",
             "command": "powershell -NoProfile -Sta -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\notify-sound.ps1\" -Repeat 5 -Speed 1.5",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "node \"C:\\Users\\ADMIN\\.claude\\hooks\\inel-event.js\"",
+            "timeout": 10,
+            "async": true
+          },
+          {
+            "type": "command",
+            "command": "node \"D:\\01_Workspaces\\line-harness\\hub\\collector\\collect.js\" --hook",
+            "timeout": 30,
+            "async": true
           }
         ]
       }
@@ -168,18 +258,57 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\codex-delegation-reminder.ps1\"",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\edit-delegation-guard.ps1\" -Mode reset",
             "timeout": 10
           },
           {
             "type": "command",
             "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\context-guard.ps1\"",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node \"C:\\Users\\ADMIN\\.claude\\hooks\\inel-event.js\"",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"C:\\Users\\ADMIN\\.claude\\hooks\\inel-event.js\"",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"C:\\Users\\ADMIN\\.claude\\hooks\\inel-event.js\"",
+            "timeout": 10,
+            "async": true
           }
         ]
       }
     ],
     "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"C:\\Users\\ADMIN\\.claude\\bin\\ontology-check.js\" --hook --repo D:\\01_Workspaces\\line-harness",
+            "timeout": 10
+          }
+        ]
+      },
       {
         "hooks": [
           {
@@ -193,8 +322,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\codegraph-init-check.ps1\"",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\edit-delegation-guard.ps1\" -Mode session",
             "timeout": 10
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"D:\\01_Workspaces\\line-harness\\hub\\collector\\collect.js\" --hook",
+            "timeout": 30,
+            "async": true
           }
         ]
       }
@@ -207,7 +346,7 @@
   },
   "enabledPlugins": {
     "codex@openai-codex": true,
-    "eli5@claude-community": true
+    "eli5@claude-community": false
   },
   "extraKnownMarketplaces": {
     "openai-codex": {

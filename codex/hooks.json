@@ -48,15 +48,6 @@
             "timeout": 10
           }
         ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\ADMIN\\.claude\\hooks\\codegraph-init-check.ps1\"",
-            "timeout": 10
-          }
-        ]
       }
     ],
     "UserPromptSubmit": [

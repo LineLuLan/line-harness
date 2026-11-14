@@ -10,6 +10,8 @@ $map = @(
   @('claude\statusline-ultrathink.js', "$h\.claude\statusline-ultrathink.js"),
   @('claude\bin', "$h\.claude\bin"),
   @('claude\hooks', "$h\.claude\hooks"),
+  @('claude\docs', "$h\.claude\docs"),
+  @('claude\ontology', "$h\.claude\ontology"),
   @('claude\commands', "$h\.claude\commands"),
   @('claude\skills', "$h\.claude\skills"),
   @('codex\AGENTS.md', "$h\.codex\AGENTS.md"),

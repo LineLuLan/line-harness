@@ -6,10 +6,101 @@ This repository is a working backup of a real machine. You can read it to learn 
 
 ## How it works
 
-1. Claude Code (the supervisor) plans the work, writes a task packet, and reviews the result.
-2. The Codex CLI (the worker) implements the packet in a sandbox, through `claude/bin/codex-do.ps1`.
-3. A review gate checks every change: deterministic gates, a fresh-session model review, then supervisor verification.
-4. Hooks enforce the rules every turn: delegation reminder, context guard, Bash heredoc guard, docs-check guard, git-push guard.
+| Role | Who | Job |
+| --- | --- | --- |
+| Owner | Line | Decides; approves Critical work; the only one who commits, pushes, or deploys |
+| Supervisor | Claude Code, Opus 5.5 | Plans, writes the task packet, picks the model, verifies (layer 3), installs, reports |
+| Worker | Codex CLI: `gpt-6-sol` (small), `gpt-6-astra` (large, Important, Critical), `gpt-6-luna` (exploration) | Implements the packet in a sandbox, writes only inside the repo it was given |
+| Backup worker | Claude Opus subagent | Takes Standard work when Codex quota is tight |
+| Reviewers | Fable 5.2 subagent, `gpt-6-astra` in a fresh session | Read the packet before dispatch; review the diff after; never the author |
+
+### One task, end to end
+
+```mermaid
+flowchart TD
+    A["Line asks for a change"] --> B["Supervisor classifies the tier<br/>Skip / Standard-A / Standard-B / Important / Critical"]
+    B --> C["Check quota pace<br/>Line Hub: Today's routing"]
+    C --> D["Pick worker + reviewer<br/>from the routing matrix"]
+    D --> E["Write the task packet<br/>GOAL, SUCCESS CRITERIA, FILES, VALIDATE, STOP RULES"]
+    E --> F{"Important or Critical?"}
+    F -- yes --> G["Fable reads the packet<br/>fix it before dispatch"]
+    F -- no --> H
+    G --> H["codex-do.ps1<br/>packet lint (exit 74), repo root as -Dir,<br/>one worker per repo, detached run"]
+    H --> I["Worker implements in the sandbox"]
+    I --> J{"Needs anything outside scope?"}
+    J -- yes --> K["Worker STOPs and reports<br/>supervisor amends the packet, resumes"]
+    K --> I
+    J -- no --> L["Layer 1: deterministic gates<br/>tests, lint, secrets -> GATES-PASS"]
+    L --> M["Layer 2: fresh-session model review<br/>per-criterion verdict, P0-P3,<br/>missing criteria -> INCOMPLETE"]
+    M --> N{"PASS?"}
+    N -- "FAIL (max 2 rounds Important)" --> I
+    N -- yes --> O["Layer 3: supervisor re-runs VALIDATE<br/>and runs the change for real"]
+    O --> P["Install into ~/.claude or ~/.codex<br/>with a backup"]
+    P --> Q["ledger-add.ps1 -SpecFile<br/>links the ledger line to its runs"]
+    Q --> R["Line Hub measures models, gates, quota"]
+    O -. "Critical only" .-> S["Line approves in writing"]
+```
+
+### Routing by quota
+
+Pace = used % / % of the window elapsed. The values live in `claude/ontology/harness.ontology.json`.
+
+```mermaid
+flowchart TD
+    Q["Read Codex and Claude quota"] --> X{"Codex used >= 95%<br/>AND Claude stressed?"}
+    X -- yes --> STOP["No new packets; report to Line<br/>(the only stop rule)"]
+    X -- no --> Y{"Claude stressed?<br/>7-day pace > 1.2 or used >= 70%"}
+    Y -- yes --> BOTH["Standard-A and Standard-B: gpt-6-sol high, never deferred<br/>Layer 2: gpt-6-astra; no Opus workers"]
+    Y -- no --> Z{"Codex level"}
+    Z -- "C0: pace <= 1.0, used < 70%" --> N0["Normal table:<br/>Standard-A sol, Standard-B / Important / Critical astra,<br/>exploration luna"]
+    Z -- "C1: pace > 1.0 or used 70-84%" --> N1["Small Standard-B to sol,<br/>exploration by Claude, layer 2 Fable"]
+    Z -- "C2: pace > 1.3 or used 85-94%" --> N2["Codex for Important/Critical only,<br/>Standard to an Opus subagent, no resumes"]
+    Z -- "C3: used >= 95%" --> N3["No Codex: Opus worker, Fable layer 2"]
+```
+
+Low free RAM never blocks, waits, or stops a session. The RAM check only reports commit headroom.
+
+### Components and data flow
+
+```mermaid
+flowchart LR
+    subgraph RULES["Rules"]
+        AG["codex/AGENTS.md<br/>shared policy"]
+        CM["claude/CLAUDE.md<br/>Claude detail + generated blocks"]
+        ON["claude/ontology/harness.ontology.json<br/>single source: quota, routing,<br/>review table, actions, hooks"]
+    end
+    subgraph RUN["Run"]
+        DO["claude/bin/codex-do.ps1<br/>dispatch"]
+        RV["claude/bin/codex-review.ps1<br/>layers 1 + 2"]
+        LA["claude/bin/ledger-add.ps1"]
+        HK["claude/hooks/*<br/>shell guards, delegation guard,<br/>context guard, notify"]
+    end
+    subgraph STATE["State in ~/.claude/state"]
+        RUNS["runs/&lt;runId&gt;/run.json"]
+        REV["reviews.jsonl"]
+        LED["review-ledger.log"]
+    end
+    subgraph HUB["Line Hub (hub/)"]
+        COL["collector<br/>SessionStart + Stop hooks,<br/>sampler every minute"]
+        DB[("~/.line-hub/hub.db")]
+        UI["web UI<br/>Usage, Routing, Models, Gates, System"]
+    end
+    CHK["claude/bin/ontology-check.js<br/>SessionStart sensor"]
+    ON --> CM
+    ON --> UI
+    ON --> CHK
+    CHK -. "drift, stale rules, hook wiring" .-> CM
+    DO --> RUNS
+    RV --> REV
+    LA --> LED
+    RUNS --> COL
+    REV --> COL
+    LED --> COL
+    COL --> DB --> UI
+    UI -. "desktop toasts" .-> L["Line"]
+```
+
+`ontology-check.js` runs at every session start. It prints only when something is wrong: a generated CLAUDE.md block that was edited by hand, a hook that is not wired as the ontology says, a repo file that differs from the installed one, or a stale rule value in memory or docs. To change a rule, edit the ontology, then run `node ~/.claude/bin/ontology-check.js --write`.
 
 The full operating policy is in `codex/AGENTS.md` (shared rules) and `claude/CLAUDE.md` (Claude-side detail).
 
@@ -18,8 +109,10 @@ The full operating policy is in `codex/AGENTS.md` (shared rules) and `claude/CLA
 | Path | Restores to | Contents |
 | --- | --- | --- |
 | `claude/CLAUDE.md`, `claude/settings.json` | `~/.claude/` | Claude Code rules and settings (hooks, model, status line) |
-| `claude/bin/` | `~/.claude/bin/` | Worker dispatch (`codex-do.ps1`), review gate (`codex-review.ps1`), Codex account switcher, sandbox preflight, run notifications, weekly MCP updater, self-tests |
+| `claude/bin/` | `~/.claude/bin/` | Worker dispatch (`codex-do.ps1`), review gate (`codex-review.ps1`), ledger (`ledger-add.ps1`), packet lint, ontology sensor (`ontology-check.js`), Codex account switcher, sandbox preflight, run notifications, weekly MCP updater, self-tests |
 | `claude/hooks/` | `~/.claude/hooks/` | PreToolUse, UserPromptSubmit, PostToolUse, Stop, and SessionStart hooks |
+| `claude/docs/` | `~/.claude/docs/` | Harness reference, packet checklist, workflow notes |
+| `claude/ontology/` | `~/.claude/ontology/` | `harness.ontology.json`: the single source of quota, routing, review, action, and hook rules |
 | `claude/statusline-ultrathink.js` | `~/.claude/` | UltraThink status line: model, context, quotas, worker runs |
 | `claude/commands/`, `claude/skills/` | `~/.claude/` | Slash commands and the installed skill bank |
 | `claude/memory/` | `~/.claude/projects/<project>/memory/` | Persistent memory notes (reference only, machine-specific) |
@@ -27,6 +120,7 @@ The full operating policy is in `codex/AGENTS.md` (shared rules) and `claude/CLA
 | `claude/plugins/` | `~/.claude/plugins/` | Installed plugin and marketplace lists |
 | `codex/AGENTS.md`, `codex/config.toml`, `codex/hooks.json` | `~/.codex/` | Codex rules, configuration, and hooks |
 | `codex/hooks/`, `codex/rules/`, `codex/skills/`, `codex/skills-archive/` | `~/.codex/` | Codex hooks, rules, active and archived skills |
+| `hub/` | runs in place | Line Hub: local dashboard (collector, server, web UI, tests). Start with `npm run hub` in `hub/` |
 | `terminal/windows-terminal-settings.json` | Windows Terminal `LocalState/settings.json` | Windows Terminal profiles and theme |
 | `scheduled-tasks/*.xml` | Task Scheduler | Weekly MCP update and Docker RAM tracker (headless through `conhost.exe --headless`) |
 
@@ -41,7 +135,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\restore.ps1          # dry
 powershell -NoProfile -ExecutionPolicy Bypass -File .\restore.ps1 -Apply   # copies files, backs up existing ones first
 ```
 
-`restore.ps1` also merges the five Claude MCP servers (context7, codegraph, github, neon, langfuse) into `~/.claude.json` through `claude/merge-mcp.js`. It adds only servers that are missing, keeps everything else in the file, and saves a backup first. Codex MCP servers come with `codex/config.toml`.
+`restore.ps1` also merges the four Claude MCP servers (context7, github, neon, langfuse; codegraph was removed on 2026-11-15) into `~/.claude.json` through `claude/merge-mcp.js`. It adds only servers that are missing, keeps everything else in the file, and saves a backup first. Codex MCP servers come with `codex/config.toml`.
 
 Do these steps by hand:
 

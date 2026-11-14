@@ -1,5 +1,5 @@
 /* Intent: own SQLite access, atomic ingestion, normalization and retained receipts.
- * Status: schema v3, SQLite leases and transactional replay migration.
+ * Status: schema v10 (field-3 evidence and review modes; targeted log replay), v9 (packet SHA, targeted run replay), v8 (system sampler tables, ledger_runs, spec_bytes, window_secs, hook_limits; no full replay), v7 (see the addColumn steps below), SQLite leases and transactional replay migration.
  * Migration: v1/v2 automatically rebuild reviews/ledger/dispatches from source logs.
  * Other facts are kept; all cursors rewind once because old cursors lack source kinds.
  * Missing source logs cannot be rebuilt; counts refill across budgeted runs.
@@ -11,6 +11,25 @@ const { DatabaseSync } = require('node:sqlite');
 const fs = require('node:fs');
 const path = require('node:path');
 const { hash, name } = require('./values');
+const SCHEMA_VERSION = 10;
+// Read-only peek at the stored schema version (null = no DB or no meta yet). Never migrates.
+function storedVersion(file) {
+  if (!fs.existsSync(file)) return null;
+  const db = new DatabaseSync(file, { readOnly: true, timeout: 5000 });
+  try {
+    if (!db.prepare("SELECT 1 FROM sqlite_master WHERE name='meta'").get()) return null;
+    const row = db.prepare("SELECT value FROM meta WHERE key='schema_version'").get();
+    return row ? Number(row.value) : null;
+  } finally { db.close(); }
+}
+// Copy the whole DB (WAL included) to <dir>/hub-v<N>.bak before a migration.
+function backupBeforeMigration(file, version) {
+  const out = path.join(path.dirname(file), `hub-v${version}.bak`);
+  if (fs.existsSync(out)) fs.unlinkSync(out);
+  const db = new DatabaseSync(file, { readOnly: true, timeout: 5000 });
+  try { db.prepare('VACUUM INTO ?').run(out); } finally { db.close(); }
+  return out;
+}
 function open(file) {
   const db = new DatabaseSync(file, { timeout: 5000 });
   db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA cache_size=-8000; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA busy_timeout=5000;');
@@ -58,7 +77,7 @@ class Store {
     try {
       const exists = this.db.prepare("SELECT 1 FROM sqlite_master WHERE name='meta'").get();
       const version = exists && this.db.prepare("SELECT value FROM meta WHERE key='schema_version'").get();
-      if (version && !['1', '2', '3', '4', '5', '6'].includes(version.value)) throw new Error('Unsupported schema version');
+      if (version && !['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'].includes(version.value)) throw new Error('Unsupported schema version');
       this.begin();
       this.db.exec(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
       const addColumn = (table, column, type) => {
@@ -75,9 +94,53 @@ class Store {
       // snapshots guarded by time. Replay once more; line counters are reset first because a
       // replay re-counts every line (v5 doubled them).
       addColumn('claude_sessions', 'branch_ts', 'INTEGER');
-      if (version && Number(version.value) < 6) {
+      // v7: Codex account per thread and per quota snapshot, parsed ledger fields, per-day Codex deltas.
+      addColumn('codex_sessions', 'account', 'INTEGER');
+      for (const column of ['task_type', 'fail_rounds', 'warning']) addColumn('ledger', column, 'INTEGER');
+      if (!this.all('PRAGMA table_info(quota_snapshots)').some(c => c.name === 'account')) {
+        // The UNIQUE key gains the account, which needs a table rebuild. Existing Codex rows came from
+        // the default Codex home (the only one read before v7); Claude rows have no account (0).
+        const codex = this.intern('source', 'codex'), fallback = this.intern('account', 'default');
+        this.exec(`CREATE TABLE quota_snapshots_v7 (
+          ts INTEGER NOT NULL, source INTEGER NOT NULL, window INTEGER NOT NULL,
+          used_pct REAL NOT NULL, resets_at INTEGER NOT NULL, account INTEGER NOT NULL DEFAULT 0,
+          UNIQUE(source,window,account,resets_at,used_pct)) STRICT`);
+        this.run(`INSERT OR IGNORE INTO quota_snapshots_v7 (ts,source,window,used_pct,resets_at,account)
+          SELECT ts,source,window,used_pct,resets_at,CASE WHEN source=? THEN ? ELSE 0 END FROM quota_snapshots`, codex, fallback);
+        this.exec('DROP TABLE quota_snapshots; ALTER TABLE quota_snapshots_v7 RENAME TO quota_snapshots;');
+      }
+      // v8: quota window length (Codex window_minutes; Claude windows are fixed) and the packet size of a run.
+      addColumn('quota_snapshots', 'window_secs', 'INTEGER');
+      addColumn('runs', 'spec_bytes', 'INTEGER');
+      addColumn('ledger', 'stop', 'INTEGER');
+      // Intent: retain evidence and review mode without losing v9 rows. Status: v10.
+      // Next: collect consumes the replay flag. Blockers: none. Confidence: tests/v10.test.js.
+      addColumn('ledger', 'layer2_raw', 'TEXT');
+      addColumn('reviews', 'mode', 'TEXT');
+      if (version && Number(version.value) < 10) this.setMeta('v10_review_replay', '1');
+      // v9: packet identity for same-packet A/B comparisons. Index follows ALTER on older DBs.
+      addColumn('runs', 'spec_sha', 'TEXT');
+      this.exec('CREATE INDEX IF NOT EXISTS runs_spec_sha ON runs(spec_sha)');
+      if (version && Number(version.value) < 9) this.setMeta('v9_run_replay', '1');
+      // v8 needs no full replay. Two one-time re-reads are flagged here and done by collect.js, which knows
+      // the source paths: v8_run_replay = only the run.json snapshot cursors are reset (spec_bytes), and
+      // v8_ledger_replay = the ledger is re-read from the start (runs= -> ledger_runs, stop; rows upsert).
+      if (version && Number(version.value) < 8) {
+        this.setMeta('v8_run_replay', '1');
+        this.setMeta('v8_ledger_replay', '1');
+      }
+      // v6 and v7 replay every source once. Line counters are reset first because a replay re-counts
+      // every line. v7 also re-binds forked Codex rollouts, removes sub-agent / tag-only human turns
+      // and re-parses the ledger (rows are upserted by content id, so nothing doubles).
+      if (version && Number(version.value) < 7) {
         this.run('UPDATE ingest_state SET offset=0, size=-1, head=NULL, session_id=NULL');
-        this.run("DELETE FROM meta WHERE key IN ('parse_errors','skipped_triage','skipped_large')");
+        this.run("DELETE FROM meta WHERE key IN ('parse_errors','skipped_triage','skipped_large','ledger_warnings')");
+        // Codex: keep each thread's old total as one day row until its rollout is replayed (a rollout
+        // that no longer exists keeps the v6 number); the replay then rebuilds it from zero as deltas.
+        this.run(`INSERT OR IGNORE INTO codex_days SELECT session_id,day,input,output,cache_read,cache_write,reasoning,total_tokens
+          FROM codex_sessions WHERE token_ts IS NOT NULL`);
+        this.run('INSERT OR IGNORE INTO codex_reseed SELECT session_id FROM codex_sessions');
+        this.run('UPDATE codex_sessions SET account=? WHERE account IS NULL', this.intern('account', 'default'));
       }
       if (version?.value === '1') {
         this.exec('INSERT OR IGNORE INTO legacy_replay SELECT path FROM ingest_state;');
@@ -86,7 +149,7 @@ class Store {
         this.exec('DELETE FROM reviews; DELETE FROM ledger; DELETE FROM dispatches;');
         this.run('UPDATE ingest_state SET offset=0,session_id=NULL');
       }
-      this.setMeta('schema_version', '6');
+      this.setMeta('schema_version', String(SCHEMA_VERSION));
       this.commit();
       this.hasReceipts = Boolean(this.get('SELECT 1 FROM receipts LIMIT 1'));
     } catch (error) { this.db.close(); throw error; }
@@ -150,4 +213,4 @@ class Store {
   }
   close() { this.rollback(); this.db.close(); }
 }
-module.exports = { open, Store, acquireLease };
+module.exports = { open, Store, acquireLease, SCHEMA_VERSION, storedVersion, backupBeforeMigration };

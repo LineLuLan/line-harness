@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 9735a2d7-8039-4e01-be5c-698d96e69807
-  modified: 2026-10-13T19:20:20.397Z
+  modified: 2026-11-08T22:30:53.318Z
 ---
 
 Audit 2026-10-12 (122 transcripts, 14 days): Bash heredoc "unexpected EOF" 97, PS7 syntax in PS 5.1 22, NativeCommandError noise 22, guard false blocks 17.
@@ -21,6 +21,14 @@ In progress (scratchpad reliab, worker session 01a12e20-041e-7c00-88af-5784b4440
 
 **How to apply:** if workers start failing with "setup refresh had errors" again, check whether the Codex desktop app (ChatGPT.exe) is running. Scheduled tasks must use `conhost.exe --headless`. Related: [[harness-worker-deaths]], [[codex-sandbox-acl-corruption]], [[harness-upgrade-mandate]].
 
+
+## Doctor 2026-11-09 (applied, Line approved "dọn hết" + hook fix)
+- ~/AGENTS.md had come back 2026-11-08 00:58 (converted copy of CLAUDE.md, "Codex Opus 5.5", ~/.Codex paths); timestamps match the Codex desktop app's Claude-session import (external_agent_session_imports.json updated 00:59:10). Deleted again, backup D:\Backups\home-AGENTS.md.bak-20261109-regenerated. Watch for it after opening Codex desktop.
+- CLAUDE.md cut 20.1k -> 6.6k chars; full text kept at ~/.claude/docs/harness-reference.md; backup CLAUDE.md.bak-20261109-doctor.
+- settings.json (backup settings.json.bak-20261109-doctor): skillOverrides "off" for 59 unused bank skills + 9 unused commands (Codex side unchanged), eli5 plugin disabled, 4 PreToolUse guard timeouts 5 -> 15 s (they were timing out at 6-11 s PowerShell cold start = guard skipped), quality-typecheck PostToolUse async (was ~20 s blocking per edit).
+- Guard hooks PowerShell->Node port: STOPPED 2026-11-09 after 4 review rounds, not installed (scratchpad hooksnode, 285 parity inputs passing). Exact parity is not reachable: git-push-guard.ps1 uses the PowerShell AST parser; .NET Framework regex uses Unicode 8 word classes vs Node ICU; NLS-linguistic -eq; stdin code-page decoding. The git-push NFKD pre-filter itself was proven sound (zero gaps, brute force) - only open item there: deny when the .ps1 writes stderr. Keep .ps1 guards with 15 s timeouts; a faster path would be a persistent PowerShell host, not a port.
+- Harness bugs seen 2026-11-09: codex-do -Resume ran gpt-6-sol instead of the original gpt-6-astra; the printed session id was rejected as an "unloaded multi-agent v2 sub-agent".
+- Open follow-ups: update outdated bank skills (nextjs 15 vs 16.4, ai-sdk v5 vs 7, vite 6 vs 8, bun 1.2 vs 1.4, openai GPT-5.6, gpt-5.2 examples); refresh Line Harness repo.
 
 ## Context7 + weekly MCP update (2026-10-12, installed)
 Line wants Claude to use context7 always and a weekly update routine. Installed: hooks/packet-docs-guard.ps1 (denies codex-do packets without DOCS CHECKED), reminder line in codex-delegation-reminder.ps1, bin/mcp-weekly-update.ps1 + task MCP-Weekly-Update (Mon 09:00, conhost --headless; verified run result 0). First run bumped ~/.codex/config.toml pins context7 3.2.5->4.3.0, codegraph 1.5.0->1.6.2. codegraph global still 1.5.0: Line runs `codegraph upgrade` with Claude closed (running MCP server locks node.exe). Lessons: plugin MCP servers (code-review, codex_app, cua_repl) show in `codex mcp list` but have no config table -> never pass enabled=false for them; PS 5.1 `&` breaks quoted native args with spaces -> use Process.Start. Backup D:\Backups\harness-pre-20261012-mcpweek.
