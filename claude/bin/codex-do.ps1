@@ -26,14 +26,14 @@
   Because config is ignored, model/effort/tier are ALWAYS passed explicitly:
   -m <Model, default gpt-6-sol> -c model_reasoning_effort=high -c service_tier=priority (Fast tier).
 
-  Hybrid policy: Claude pre-fetches context (context7/codegraph/github MCPs run warm on the
+  Hybrid policy: Claude pre-fetches context (context7/github MCPs run warm on the
   Claude side) and embeds verified facts into the spec. If Codex needs external info
   mid-task, it reports the blocker and Claude re-delegates (~12s/round). For long multi-turn
   collaborative sessions that genuinely need MCP inside Codex, use the `codex` MCP tool
   (full config) instead of this wrapper.
 
   Used by Claude Code to hand off CODING / IMPLEMENTATION / GITHUB work to Codex while
-  Opus 4.8 keeps planning, debugging, and review. See ~/.claude/CLAUDE.md.
+  Opus 5.5 keeps planning, debugging, and review. See ~/.claude/CLAUDE.md.
 
 .PARAMETER Dir
   Working root Codex operates in. Defaults to the current directory.

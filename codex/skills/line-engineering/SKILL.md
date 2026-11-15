@@ -32,7 +32,7 @@ specific.
    release, or minimal UI internals.
 5. Use `$claude-opus-second-brain` for important plans, audits, standards/docs, architecture
    decisions, high-risk implementation, difficult debugging, or final review when available.
-6. If a `.codegraph/` index exists and the codebase is broad or unfamiliar, use CodeGraph for
+6. If the codebase is broad or unfamiliar, use Grep and line-range Read for
    architecture discovery, then confirm risky details with `rg` and direct file reads.
 7. Do not invent env vars, routes, API contracts, data models, queues, workers, package choices,
    deployment paths, or external integrations. Verify against source and docs.

@@ -87,7 +87,8 @@ if ($SpecFile -and -not $RunIds.Count) {
     }
   }
   $RunIds = @($matched | Sort-Object Started, Id | ForEach-Object { $_.Id })
-  if (-not $RunIds.Count) { [Console]::Error.WriteLine('ledger-add: warning: no codex-do run matched the spec') }
+  # Intent: refuse unlinked spec evidence. Status: enforced. Next: install. Blockers: none. Confidence: unchanged-ledger regression.
+  if (-not $RunIds.Count) { throw 'ledger-add: no codex-do run matched the spec; pass -RunIds, or omit -SpecFile and say why in -Note' }
 }
 # Intent: one validated UTF-8 record per call, including concurrent completions.
 # Status: append under exclusive writer access. Next: supervisor installation.

@@ -12,7 +12,7 @@ Line asked (2026-09-07) whether another agent checks quality before delivery. An
 **How to apply:**
 - Skip tier (diff under ~20 lines of config/typo/rename/docs): run VALIDATE only.
 - Standard: `powershell -NoProfile -File C:\Users\ADMIN\.claude\bin\codex-review.ps1 -Dir <repo> -SpecFile <packet.md> [-Base <branch>] [-Effort high] [-OutFile <f>]`. Exit 0 PASS, 1 FAIL, 2 not a git repo, 3 UNKNOWN (read output by hand), 4 diff over 400 KB (split the review). Gates run first and stop before Codex on FAIL (secrets, console.log, typecheck/lint when the repo defines them).
-- Important: Standard + one Fable 5.1 subagent (`Agent`, fresh context) given the diff and the packet criteria.
+- Important: Standard + one Fable 5.2 subagent (`Agent`, fresh context) given the diff and the packet criteria.
 - Critical: Important + Line approves in writing.
 - On FAIL: worker fixes, then a NEW reviewer run (never reuse). After 3 FAILs stop and report to Line.
 - **Line correction 2026-09-08 ("Codex chấm Codex rồi 2 thằng đều sai thì sao"):** the Codex review is layer 2 of 3. Layer 3, the supervisor (Fable) comparing the diff to every criterion, re-running VALIDATE, and executing the change for real, is mandatory at every tier and is never delegated to Codex. Same-model review shares the worker's blind spots; the codex-review build itself proved it (the worker's wrong VERDICT assumption was caught only by the supervisor running it live).

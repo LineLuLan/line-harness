@@ -1,7 +1,7 @@
 | Codex quota | Route |
 | --- | --- |
 | Pace <= 1.0 and used < 70% | Normal routing table. |
-| Pace > 1.0 to 1.3, used 70-84%, or over daily budget | Standard-B with <= 3 files and a runnable VALIDATE goes to `gpt-6-sol` high. No Luna exploration (Claude Explore subagent). Layer 2 = Fable subagent. |
+| Pace > 1.0 to 1.3, used 70-84% | Standard-B with <= 3 files and a runnable VALIDATE goes to `gpt-6-sol` high. No Luna exploration (Claude Explore subagent). Layer 2 = Fable subagent. |
 | Pace > 1.3 or used 85-94% | Codex for Important/Critical. Standard work goes to an Opus subagent with the same packet (if Claude is stressed too, see below). No resumes. |
 | Used >= 95% | No Codex. Opus subagent = worker, Fable subagent = layer 2, ledger `worker=opus`. |
 

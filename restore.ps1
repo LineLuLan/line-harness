@@ -17,7 +17,6 @@ $map = @(
   @('codex\AGENTS.md', "$h\.codex\AGENTS.md"),
   @('codex\config.toml', "$h\.codex\config.toml"),
   @('codex\hooks.json', "$h\.codex\hooks.json"),
-  @('codex\hooks', "$h\.codex\hooks"),
   @('codex\rules', "$h\.codex\rules"),
   @('codex\skills', "$h\.codex\skills"),
   @('terminal\windows-terminal-settings.json', "$h\AppData\Local\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json")

@@ -7,13 +7,13 @@ Cập nhật 2026-09-28 (Line: dòng GPT-6; Sol cho Skip và Standard-A, Astra c
 | Vai | Ai | Model | Làm gì |
 | --- | --- | --- | --- |
 | Line | người | - | Ra ý định, quyết định fork, duyệt tier Critical, ra lệnh commit và push |
-| Supervisor | Claude Code | Opus 5.5 high mặc định; Fable 5.1 qua `/model` cho lớp 3 Important (Critical: Fable 5.2 since 2026-11-14), root-cause khó, kiến trúc | Interview, spec, decompose, packet, đọc verdict, quyết định ship, memory |
+| Supervisor | Claude Code | Opus 5.5 high mặc định; Fable 5.2 qua `/model` cho lớp 3 Important và Critical (since 2026-11-15), root-cause khó, kiến trúc | Interview, spec, decompose, packet, đọc verdict, quyết định ship, memory |
 | Worker | Codex CLI | Skip, Standard-A: GPT-6 Sol high. Standard-B, Important, Critical: GPT-6 Astra high qua `-Model`. High thất bại: Astra xhigh. `-Fast` = medium. Fast tier luôn bật | Viết code trong sandbox, tự test, báo diff và kết quả validate |
 | Explorer | Codex CLI | Tầng 1 tìm, liệt kê, đếm, sửa hàng loạt: GPT-6 Luna max. Tầng 2 tổng hợp nhiều module, bằng chứng mâu thuẫn, root-cause: GPT-6 Sol ultra | Khám phá, gom bằng chứng, sửa hàng loạt cơ học |
 | Lớp 1, cổng máy móc | Script `codex-review.ps1` | Không có model | Typecheck, lint, quét secret, quét console.log. Chạy trước mọi review |
 | Lớp 2, reviewer | Codex CLI, session mới | Astra high | Đọc diff và tiêu chí, trả PASS hoặc FAIL. Chỉ Important và Critical |
 | Lớp 2b, reviewer khác hãng | Claude subagent, context mới | Fable 5.2 (alias `fable`, từ 14/11) | Chỉ Important và Critical |
-| Lớp 3, supervisor kiểm chứng | Claude Code | Opus 5.5 ở Skip/Standard; Fable 5.1 ở Important (Critical: Fable 5.2 since 2026-11-14) | Đối chiếu từng tiêu chí, chạy lại validate, chạy thật. Bắt buộc mọi tier |
+| Lớp 3, supervisor kiểm chứng | Claude Code | Opus 5.5 ở Skip/Standard; Fable 5.2 ở Important và Critical | Đối chiếu từng tiêu chí, chạy lại validate, chạy thật. Bắt buộc mọi tier |
 
 ## Các bước
 
@@ -29,11 +29,11 @@ Cập nhật 2026-09-28 (Line: dòng GPT-6; Sol cho Skip và Standard-A, Astra c
 
 | Tier | Điều kiện | Viết code | Lớp 1 cổng máy móc | Lớp 2 review session mới | Lớp 3 supervisor | Line |
 | --- | --- | --- | --- | --- | --- | --- |
-| Skip | dưới 20 dòng, config, typo, đổi tên, docs | Astra hoặc tôi | không | không | Fable 5.1 chạy validate | không |
-| Standard-A | 1 đến 2 file, có validate chạy được, logic một nhánh, packet có ví dụ vào ra | Sol high | có, `codex-review.ps1 -SkipModel`, không gọi model | không. Tôi được tự bật khi diff trên 150 dòng hoặc logic nhiều nhánh, ghi lý do vào ledger | Fable 5.1 đối chiếu tiêu chí, chạy validate, chạy thật | không |
+| Skip | dưới 20 dòng, config, typo, đổi tên, docs | Astra hoặc tôi | không | không | Fable 5.2 chạy validate | không |
+| Standard-A | 1 đến 2 file, có validate chạy được, logic một nhánh, packet có ví dụ vào ra | Sol high | có, `codex-review.ps1 -SkipModel`, không gọi model | không. Tôi được tự bật khi diff trên 150 dòng hoặc logic nhiều nhánh, ghi lý do vào ledger | Fable 5.2 đối chiếu tiêu chí, chạy validate, chạy thật | không |
 | Standard-B | từ 3 file, chuỗi lệnh dài, phải tự tìm ngữ cảnh trong repo, validate mơ hồ, hoặc Sol từng STOP hay FAIL ở việc tương tự | Astra high | có, `-SkipModel` | không, như Standard-A | như Standard-A | không |
-| Important | nhiều file, API contract, module dùng chung | Astra high | có | Astra high session mới, cộng subagent Fable 5.1 context mới. Bắt buộc, không được bỏ | như trên | không |
-| Critical | security, payment, auth, migration | Astra high, xhigh nếu high thất bại | có | Astra high session mới, cộng subagent Fable 5.1 | hai lượt | duyệt bằng chữ |
+| Important | nhiều file, API contract, module dùng chung | Astra high | có | Astra high session mới, cộng subagent Fable 5.2 context mới. Bắt buộc, không được bỏ | như trên | không |
+| Critical | security, payment, auth, migration | Astra high, xhigh nếu high thất bại | có | Astra high session mới, cộng subagent Fable 5.2 | hai lượt | duyệt bằng chữ |
 
    Lớp 1 không có model: chỉ chạy tsc, lint, và so khớp regex trên diff. Worker có model nhưng viết bài thì không được chấm bài, nên không tính là lớp kiểm tra. Ở Standard vẫn có hai model làm việc: Sol hoặc Astra viết tùy A hay B, Fable chấm. Tier con ghi vào đầu packet trước khi gọi, kèm lý do một dòng.
 10. FAIL thì quay lại bước 6 với finding, rồi bước 9 với reviewer mới. Ba lần FAIL thì dừng và báo Line.
@@ -43,8 +43,8 @@ Cập nhật 2026-09-28 (Line: dòng GPT-6; Sol cho Skip và Standard-A, Astra c
 ## Context window
 
 - Statusline ghi phần trăm context của phiên ra file cache mỗi lần vẽ.
-- Hook `context-guard.ps1` đọc file đó ở mỗi lượt Line gửi tin và chèn cảnh báo: 60 đến 69 CHECKPOINT, 70 đến 79 OFFER HANDOFF, từ 80 HANDOFF MANDATORY. Dưới 60 im lặng.
-- Hook chỉ nhắc. Từ 80 supervisor phải tự chạy `/handoff`.
+- Hook `context-guard.ps1` đọc file đó ở mỗi lượt Line gửi tin; dưới 85% im lặng.
+- Từ 85% supervisor tự cập nhật file handoff mới nhất trong im lặng và tiếp tục làm việc; compaction xử lý phiên dài.
 - Delegation giữ output worker ngoài context supervisor: worker tiêu 82.000 token, supervisor chỉ nhận 40 đến 60 dòng cuối.
 
 ## Cửa an toàn

@@ -12,7 +12,7 @@ const q = require('../server/queries');
 const SOL = 'gpt-6-sol high', ASTRA = 'gpt-6-astra high', ASTRA_NR = 'gpt-6-astra high (no resumes)';
 const LUNA = 'gpt-6-luna max then gpt-6-sol ultra', SB_COND = 'gpt-6-sol high if <=3 files and runnable VALIDATE, else gpt-6-astra high';
 const OPUS = 'Opus subagent', EXPLORE = 'Claude Explore subagent', FABLE = 'Fable subagent', L2_ASTRA = 'gpt-6-astra';
-const L3I_K0 = 'Fable via /model', L3I_K1 = 'Opus supervisor (Fable only for Critical)', L3C = 'Fable 5.2 high via /model claude-fable-5-2';
+const L3I_K0 = 'Fable 5.2 high via /model claude-fable-5-2', L3I_K1 = 'Opus supervisor (Fable only for Critical)', L3C = 'Fable 5.2 high via /model claude-fable-5-2';
 const WORK = ['Standard-A', 'Standard-B', 'Important/Critical worker', 'Exploration', 'Layer-2 review', 'Layer-3 Important', 'Layer-3 Critical'];
 const STOP = 'No new packets; report to Line';
 
@@ -41,7 +41,7 @@ for (const [cell, want] of Object.entries(MATRIX)) {
     assert.deepEqual(a.rows.map(r => r.work), WORK);
     assert.deepEqual(models(a), want);
     for (const r of a.rows) assert.ok(typeof r.rule === 'string' && r.rule.length > 0, `${r.work} has a rule`);
-    assert.ok(a.notes.includes('daily budget rule not tracked'));
+    assert.ok(!a.notes.includes('daily budget rule not tracked'));
   });
 }
 
@@ -111,7 +111,7 @@ test('routeAdvice: all-null input = C0 / K0 with the "no Codex data" note, no ST
   assert.equal(a.codexLevel, 'C0'); assert.equal(a.claudeLevel, 'K0');
   assert.equal(a.stop, false); assert.equal(a.handoff, false);
   assert.ok(a.notes.includes('no Codex data'));
-  assert.ok(a.notes.includes('daily budget rule not tracked'));
+  assert.ok(!a.notes.includes('daily budget rule not tracked'));
   assert.deepEqual(models(a), MATRIX['K0 C0']);
   assert.equal(q.routeAdvice({}).codexLevel, 'C0', 'missing keys = null');
 });

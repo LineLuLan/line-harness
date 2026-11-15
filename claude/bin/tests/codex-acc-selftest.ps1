@@ -23,6 +23,8 @@ function New-TestAuth([string]$Email) {
   return (@{ tokens = @{ id_token = "eyJhbGciOiJub25lIn0.$encoded." } } | ConvertTo-Json -Compress)
 }
 function Invoke-TestScript([string]$Script, [string[]]$Arguments) {
+  # Intent: await the fake child before checking its account. Status: fixed. Next: host suite. Blockers: none. Confidence: sibling attached fixtures.
+  if ($Script -eq 'codex-do.ps1') { $Arguments = @('-Attached') + $Arguments }
   $lines = @(& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $bin $Script) @Arguments 2>&1)
   return [pscustomobject]@{ Code = $LASTEXITCODE; Text = ($lines -join "`n") }
 }
@@ -56,13 +58,24 @@ try {
   Write-TestFile (Join-Path $env:CODEX_ACC_MAIN_HOME 'sessions/2026/09/28/rollout-x.jsonl') ($limits + "`n" + '{"payload":{"message":"later event"}}')
   Write-TestFile $env:CODEX_DO_BIN @'
 @echo off
+rem Intent: model successful sandbox probes without recording a worker call. Status: fixed. Next: host suite. Blockers: none. Confidence: fake-only transport.
+if "%~1"=="sandbox" (
+  echo PREFLIGHT-OK
+  exit /b 0
+)
 if defined CODEX_HOME (
   >"%ACC_TEST_RECORD%" echo %CODEX_HOME%
 ) else (
   >"%ACC_TEST_RECORD%" echo NONE
 )
 if "%~1"=="login" copy /y "%ACC_TEST_AUTH%" "%CODEX_HOME%\auth.json" >nul
-if "%~1"=="review" echo VERDICT: PASS
+rem Intent: supply the current review response contract. Status: fixed. Next: host suite. Blockers: none. Confidence: review exit assertions.
+if "%~1"=="review" (
+  echo VERDICT: PASS
+  echo ```findings
+  echo []
+  echo ```
+)
 node "%~dp0fake-args.js" %*
 exit /b %ACC_TEST_EXIT%
 '@
@@ -125,18 +138,26 @@ param($Script)
   $null = & powershell -NoProfile -ExecutionPolicy Bypass -File $argRunner (Join-Path $bin 'codex-acc.ps1')
   $forwarded = [IO.File]::ReadAllText($env:ACC_TEST_RECORD + '.args') | ConvertFrom-Json
   Assert-True ($forwarded.Count -eq 5 -and $forwarded[0] -ceq '--message' -and $forwarded[1] -ceq 'two words' -and $forwarded[2] -ceq 'a"b' -and $forwarded[3] -ceq '' -and $forwarded[4] -ceq 'tail\') 'run forwards flags, spaces, quotes, empty arguments, and backslashes'
-  Assert-Run 'codex-do.ps1' @('-Account', 'work', '-Dir', $fixture, 'fixture') $workHome
-  Assert-Run 'codex-do.ps1' @('-Dir', $fixture, 'fixture') $workHome
-  Assert-Run 'codex-do.ps1' @('-Account', 'main', '-Dir', $fixture, 'fixture') 'NONE'
-  $result = Invoke-TestScript 'codex-do.ps1' @('-Account', 'missing', '-Dir', $fixture, 'fixture')
+  # Intent: exercise account selection with a valid shared packet. Status: fixed. Next: host suite. Blockers: none. Confidence: existing account assertions.
+  . (Join-Path $PSScriptRoot 'fixtures\dispatch-packet.ps1')
+  $dispatchPacket = Join-Path $fixture 'dispatch-packet.txt'
+  Write-TestFile $dispatchPacket (New-SelftestPacket 'fixture')
+  Assert-Run 'codex-do.ps1' @('-Account', 'work', '-Dir', $fixture, '-SpecFile', $dispatchPacket) $workHome
+  Assert-Run 'codex-do.ps1' @('-Dir', $fixture, '-SpecFile', $dispatchPacket) $workHome
+  Assert-Run 'codex-do.ps1' @('-Account', 'main', '-Dir', $fixture, '-SpecFile', $dispatchPacket) 'NONE'
+  $result = Invoke-TestScript 'codex-do.ps1' @('-Account', 'missing', '-Dir', $fixture, '-SpecFile', $dispatchPacket)
   Assert-True ($result.Code -eq 5 -and $result.Text.Contains("account 'missing' not found")) 'do missing account exits 5'
   New-Item -ItemType Directory -Path (Join-Path $env:CODEX_ACC_ROOT 'loggedout') | Out-Null
-  $result = Invoke-TestScript 'codex-do.ps1' @('-Account', 'loggedout', '-Dir', $fixture, 'fixture')
+  # Intent: keep logged-out coverage behind valid packet lint. Status: fixed. Next: host suite. Blockers: none. Confidence: exit 5 assertion.
+  $result = Invoke-TestScript 'codex-do.ps1' @('-Account', 'loggedout', '-Dir', $fixture, '-SpecFile', $dispatchPacket)
   Assert-True ($result.Code -eq 5) 'do logged-out account exits 5'
 
   # Reuse the scratch repository's baseline locally, without creating a commit.
   $repo = Join-Path $fixture 'repo'
-  & git clone --quiet --no-hardlinks (Split-Path -Parent $bin) $repo
+  # Intent: clone the containing repository without unrelated deep skill paths. Status: fixed. Next: host suite. Blockers: none. Confidence: Git root discovery.
+  $sourceRepo = & git -C $bin rev-parse --show-toplevel
+  if ($LASTEXITCODE -ne 0) { throw 'local fixture source repository not found' }
+  & git clone --quiet --sparse --no-hardlinks $sourceRepo $repo
   if ($LASTEXITCODE -ne 0) { throw 'local fixture clone failed' }
   $result = Invoke-TestScript 'codex-review.ps1' @('-Dir', $repo, '-Account', 'missing')
   Assert-True ($result.Code -eq 5 -and $result.Text -notmatch 'GATE ') 'review missing account fails before gates even with empty diff'
@@ -154,12 +175,14 @@ param($Script)
   # Execute in one PowerShell process so restoration is measured in the actual caller.
   $runner = Join-Path $fixture 'restore.ps1'
   Write-TestFile $runner @'
-param($Script, $Fixture, $Repo, $Mode, $AccountHome)
+# Intent: reuse the valid packet in restoration checks. Status: fixed. Next: host suite. Blockers: none. Confidence: both child exit paths.
+param($Script, $Fixture, $Repo, $Mode, $AccountHome, $SpecFile)
 $ErrorActionPreference = 'Stop'
 foreach ($previous in @($null, 'caller-home')) {
   $env:CODEX_HOME = $previous
   try {
-    if ($Mode -eq 'do') { & $Script -Dir $Fixture -Account work fixture }
+    # Intent: reach the fake child before checking restoration. Status: fixed. Next: host suite. Blockers: none. Confidence: existing restoration assertions.
+    if ($Mode -eq 'do') { & $Script -Attached -Dir $Fixture -Account work -SpecFile $SpecFile }
     elseif ($Mode -eq 'review') { & $Script -Dir $Repo -Account work -SkipGates }
     else { & $Script run -Account work -- --help }
   } catch { if ($env:ACC_TEST_EXIT -eq '0') { throw } }
@@ -171,7 +194,8 @@ Write-Host 'RESTORED'
     $scriptName = if ($mode -eq 'acc') { 'codex-acc.ps1' } else { "codex-$mode.ps1" }
     foreach ($code in @('0', '7')) {
       $env:ACC_TEST_EXIT = $code
-      $output = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $runner (Join-Path $bin $scriptName) $fixture $repo $mode $workHome 2>&1)
+      # Intent: forward the shared packet to the child helper. Status: fixed. Next: host suite. Blockers: none. Confidence: unchanged restoration coverage.
+      $output = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $runner (Join-Path $bin $scriptName) $fixture $repo $mode $workHome $dispatchPacket 2>&1)
       Assert-True (($output -join "`n") -match 'RESTORED') "$scriptName restores caller env (child exit $code)"
     }
   }

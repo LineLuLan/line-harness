@@ -22,8 +22,12 @@
   Reviewer reasoning effort. Defaults to high.
 .PARAMETER OutFile
   Optional UTF-8 file containing the gate summary and full reviewer output.
+.PARAMETER Paths
+  Explicit git pathspecs override packet FILES; -AllPaths disables packet-derived scope.
+.PARAMETER AllPaths
+  Review the whole diff instead of deriving Paths from SpecFile; explicit Paths still wins.
 .PARAMETER SkipGates
-  Skip typecheck, lint, secrets, and console gates.
+  Skip typecheck, lint, psparse, secrets, and console gates.
 .PARAMETER SkipModel
   Run gates only, without sandbox preflight or any Codex process.
 .PARAMETER NoSandboxFallback
@@ -53,6 +57,7 @@ param(
   [string]$Effort = 'high',
   [string]$OutFile,
   [string[]]$Paths = @(),   # git pathspecs (incl. ':(exclude)dir') that narrow the reviewed diff (2026-10-25)
+  [switch]$AllPaths,
   [switch]$SkipGates,
   [switch]$SkipLint,    # keep typecheck/secrets/console gates, skip lint only (repo lint OOMs on 15 GB machines)
   [switch]$SkipModel,   # gates only (Standard tier, Line 2026-09-08): never call Codex; exit by gate result
@@ -66,6 +71,8 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'codex-sandbox-lib.ps1')
 . (Join-Path $PSScriptRoot 'ram-preflight.ps1')
 . (Join-Path $PSScriptRoot 'review-findings-lib.ps1')
+# Intent: share FILES parsing with packet lint. Status: wired. Next: install. Blockers: none. Confidence: scope regressions.
+. (Join-Path $PSScriptRoot 'packet-lint.ps1')
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 # Decode git/npm stdout as UTF-8: with the console code page, Vietnamese diff lines reached the reviewer as
 # mojibake and were reported as broken fixtures (WP2 review 2026-10-25).
@@ -147,7 +154,8 @@ function Write-ReviewFindingsLog {
           -SpecFile $SpecFile -SpecSha $specSha -RunId $runId -Kind 'format-violation'
       }
       foreach ($gate in $failedGates) {
-        $category = if ($gate -in @('typecheck','lint')) { 'formatter-lint' } else { 'fixture-secret' }
+        # Intent: classify syntax failures without changing finding shape. Status: mapped. Next: install. Blockers: none. Confidence: JSONL fixtures.
+        $category = if ($gate -eq 'psparse') { 'ps51-traps' } elseif ($gate -in @('typecheck','lint')) { 'formatter-lint' } else { 'fixture-secret' }
         New-FindingFact -Utc $Utc -IdSeed ([string]$index) -Source 'codex-review' -Layer 1 `
           -Severity 'P2' -Category $category -Title "$gate gate failed" -Dir $Dir -SpecFile $SpecFile -SpecSha $specSha -RunId $runId
         $index++
@@ -472,10 +480,12 @@ function Invoke-Main {
     if ($inside -ne 'true') { throw 'Not a work tree' }
   } catch { Write-Result "NOT A GIT REPO: $Dir"; return 2 }
   $repoRoot = Invoke-Git @('-C', $workDir, 'rev-parse', '--show-toplevel')
+  # Intent: resolve caller-relative packets while preserving log identity. Status: separate path. Next: install. Blockers: none. Confidence: relative-SpecFile fixture.
+  $specFullPath = if ($SpecFile) { $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($SpecFile) } else { $null }
   Push-Location -LiteralPath $workDir
   try {
     if ($SkipGates) {
-      foreach ($name in @('typecheck', 'lint', 'secrets', 'console')) { Write-Gate $name 'SKIP' '-SkipGates' }
+      foreach ($name in @('typecheck', 'lint', 'psparse', 'secrets', 'console')) { Write-Gate $name 'SKIP' '-SkipGates' }
     } else {
       $package = $null
       $badPackage = $false
@@ -497,6 +507,18 @@ function Invoke-Main {
       else { Write-Gate 'lint' 'SKIP' 'no lint script' }
     }
     # Command gates may generate or fix files. Scan and review their resulting diff.
+    # Intent: default to packet scope without silently reviewing nothing. Status: guarded fallback. Next: install. Blockers: none. Confidence: scope regressions.
+    if ($specFullPath -and -not $Paths.Count -and -not $AllPaths) {
+      $Paths = @(Get-PacketFilePaths -Text (Get-Content -Raw -LiteralPath $specFullPath -Encoding UTF8) -RepoRoot $repoRoot)
+      if (-not $Paths.Count) { Write-Result 'PATHS FROM PACKET: none found; reviewing the whole diff' }
+      else {
+        Write-Result "PATHS FROM PACKET: $($Paths.Count) path(s)"
+        if (@(Get-ChangedFileNames $repoRoot $Paths).Count -eq 0 -and @(Get-ChangedFileNames $repoRoot @()).Count -gt 0) {
+          $Paths = @()
+          Write-Result 'PATHS FROM PACKET: matched 0 changed files; reviewing the whole diff'
+        }
+      }
+    }
     $diff = Get-ReviewDiff $repoRoot
     $excludedFiles = @(Get-PathsExcludedFiles $repoRoot)
     if ($excludedFiles.Count) {
@@ -508,6 +530,23 @@ function Invoke-Main {
       return 4
     }
     if (-not $SkipGates) {
+      # Intent: block broken PowerShell before model review. Status: scoped Parser API gate. Next: install. Blockers: none. Confidence: PASS/FAIL/SKIP fixtures.
+      $psFiles = @(Get-ChangedFileNames $repoRoot $Paths | Where-Object {
+        $_ -match '\.(ps1|psm1|psd1)$' -and [IO.File]::Exists((Join-Path $repoRoot $_))
+      })
+      $parseHits = @()
+      foreach ($file in $psFiles) {
+        $tokens = $null; $parseErrors = $null
+        [void][Management.Automation.Language.Parser]::ParseFile((Join-Path $repoRoot $file), [ref]$tokens, [ref]$parseErrors)
+        foreach ($parseError in @($parseErrors)) {
+          $parseHits += "${file}:$($parseError.Extent.StartLineNumber): $($parseError.Message)"
+        }
+      }
+      if (-not $psFiles.Count) { Write-Gate 'psparse' 'SKIP' 'no changed PowerShell files' }
+      elseif ($parseHits.Count) {
+        Write-Gate 'psparse' 'FAIL' "$($parseHits.Count) syntax error(s)"
+        $parseHits | Select-Object -First 10 | ForEach-Object { Write-Result $_ }
+      } else { Write-Gate 'psparse' 'PASS' "$($psFiles.Count) changed PowerShell file(s)" }
       $added = @(Get-AddedLines $diff)
       $assignmentPattern = '(?i)((?:api[_-]?key|secret|password|token)\s*[:=]\s*[''"])[^''"]{8,}'
       $patterns = @($assignmentPattern, 'sk-[A-Za-z0-9]{20,}', 'ghp_[A-Za-z0-9]{20,}', 'AKIA[0-9A-Z]{16}', '-----BEGIN [A-Z ]*PRIVATE KEY-----')
@@ -547,7 +586,7 @@ function Invoke-Main {
   $spec = ''
   $expectedIds = @()
   if ($SpecFile) {
-    $spec = Get-Content -Raw -LiteralPath $SpecFile -Encoding UTF8
+    $spec = Get-Content -Raw -LiteralPath $specFullPath -Encoding UTF8
     $section = [regex]::Match($spec, '(?ms)^\s*SUCCESS CRITERIA:[ \t]*(.*?)(?=^[A-Z][A-Z0-9 _/-]*:|\z)')
     if (-not $section.Success -or [string]::IsNullOrWhiteSpace($section.Groups[1].Value)) { throw 'SpecFile has no SUCCESS CRITERIA block' }
     # Intent: bind reported ids to the packet, including gaps in numbering. Status: coverage wired.

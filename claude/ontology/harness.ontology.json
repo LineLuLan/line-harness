@@ -1,6 +1,6 @@
 {
   "$comment": "Line Harness ontology: the single source for routing, quota, review and permission rules. Consumers: Line Hub (routeAdvice, alert RULES), CLAUDE.md generated blocks, ontology-check sensor. Edit here, then run ontology-check --write. Owner: Line. Values copied from the live system on 2026-11-15.",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "updated": "2026-11-15",
   "defectCategories": [
     {
@@ -430,24 +430,16 @@
         ]
       },
       {
-        "id": "fable51",
-        "side": "claude",
-        "name": "Fable 5.1",
-        "slug": "claude-fable-5-1",
-        "roles": [
-          "layer3-important",
-          "root-cause",
-          "architecture"
-        ]
-      },
-      {
         "id": "fable52",
         "side": "claude",
         "name": "Fable 5.2",
         "slug": "claude-fable-5-2",
         "roles": [
+          "layer3-important",
           "layer3-critical",
-          "fable-subagent"
+          "fable-subagent",
+          "root-cause",
+          "architecture"
         ],
         "note": "The Agent tool `fable` alias reported itself as claude-fable-5-2 on 2026-11-14."
       },
@@ -614,9 +606,9 @@
       },
       {
         "id": "C1",
-        "test": "pace > codexPace1 (to codexPace2) or used codexUsed1..codexUsed2-1, or over daily budget",
+        "test": "pace > codexPace1 (to codexPace2) or used codexUsed1..codexUsed2-1",
         "route": "Standard-B with <= 3 files and a runnable VALIDATE goes to `gpt-6-sol` high. No Luna exploration (Claude Explore subagent). Layer 2 = Fable subagent.",
-        "label": "Pace > {codexPace1} to {codexPace2}, used {codexUsed1}-{codexUsed2-1}%, or over daily budget"
+        "label": "Pace > {codexPace1} to {codexPace2}, used {codexUsed1}-{codexUsed2-1}%"
       },
       {
         "id": "C2",
@@ -665,11 +657,6 @@
         "bullet": "Codex desktop and CLI sessions count against the budget. One session over 50M tokens: stop and report to Line."
       }
     ],
-    "dailyBudget": {
-      "perSidePctOfWeek": 15,
-      "overBudgetBurnPct": 20,
-      "tracked": false
-    },
     "templateRules": "Placeholders {key} take quota.thresholds[key]; {key-1} subtracts 1; keys containing \"Pace\" print with at least one decimal (1 -> 1.0, 1.3 -> 1.3); others print as integers."
   },
   "routing": {
@@ -750,7 +737,7 @@
       }
     },
     "layer3": {
-      "K0": "Fable via /model",
+      "K0": "Fable 5.2 high via /model claude-fable-5-2",
       "K1": "Opus supervisor (Fable only for Critical)",
       "critical": "Fable 5.2 high via /model claude-fable-5-2"
     },
@@ -937,10 +924,6 @@
       },
       {
         "event": "SessionStart",
-        "script": "codex-job-watcher.ps1"
-      },
-      {
-        "event": "SessionStart",
         "script": "edit-delegation-guard.ps1"
       },
       {
@@ -950,7 +933,6 @@
     ],
     "codex": [
       "codex-delegation-reminder.ps1",
-      "codex-job-watcher.ps1",
       "git-push-guard.ps1",
       "notify-sound.ps1",
       "quality-console-warn.ps1",
@@ -967,6 +949,11 @@
         "script": "codegraph-init-check.ps1",
         "date": "2026-11-15",
         "why": "codegraph MCP removed (4 calls in 30 days)"
+      },
+      {
+        "script": "codex-job-watcher.ps1",
+        "date": "2026-11-15",
+        "why": "optional beep; codex-do already plays a toast and a sound"
       }
     ]
   },
@@ -1037,7 +1024,7 @@
     },
     {
       "id": "critical-fable52",
-      "text": "Every Fable step at Critical uses Fable 5.2.",
+      "text": "Every Fable step uses Fable 5.2 (Line, 2026-11-15).",
       "date": "2026-11-14",
       "enforcement": "PROSE"
     },
@@ -1064,8 +1051,8 @@
       "why": "context nags were removed 2026-11-15 (context-silent)"
     },
     {
-      "pattern": "Fable 5\\.1[^\\n]{0,40}Critical|Critical[^\\n]{0,40}Fable 5\\.1",
-      "why": "Critical uses Fable 5.2 (critical-fable52)"
+      "pattern": "Fable 5\\.1",
+      "why": "every Fable step uses Fable 5.2 since 2026-11-15"
     },
     {
       "pattern": "codegraph_explore|codegraph init",
@@ -1091,7 +1078,7 @@
     ],
     [
       "Important (multi-file, API contract, shared module)",
-      "1 + 2 (`gpt-6-astra`, mandatory) + a Fable 5.1 subagent + 3"
+      "1 + 2 (`gpt-6-astra`, mandatory) + a Fable subagent + 3"
     ],
     [
       "Critical (security, payment, auth, migration)",

@@ -7,7 +7,6 @@ param(
     [string]$ConfigPath = "$env:USERPROFILE\.codex\config.toml",
     [string]$CodexBin,
     [string]$NpmBin = 'npm.cmd',
-    [string]$CodegraphBin,
     [string]$LogPath = "$env:USERPROFILE\.claude\state\mcp-weekly-update.log",
     [switch]$DryRun
 )
@@ -219,19 +218,6 @@ try {
         Where-Object { $_.Name -match $backupPattern } | Sort-Object Name -Descending)
     foreach ($oldBackup in ($backups | Select-Object -Skip 4)) { Remove-Item -LiteralPath $oldBackup.FullName -Force }
 
-    if (-not $CodegraphBin) { $CodegraphBin = Resolve-Tool 'codegraph.cmd' }
-    if ($CodegraphBin) {
-        $installed = Invoke-BoundedTool $CodegraphBin @('--version')
-        if ($installed.Code -eq 0 -and (Test-Version $installed.Text)) {
-            $latest = Invoke-BoundedTool $NpmBin @('view', '@colbymchenry/codegraph', 'version')
-            if ($latest.Code -eq 0 -and (Test-Version $latest.Text) -and [version]$installed.Text -lt [version]$latest.Text) {
-                [void]$entries.Add([pscustomobject]@{
-                    Package = 'codegraph'; Old = $installed.Text; Latest = $latest.Text
-                    Status = ('report:codegraph {0} -> {1} (run codegraph upgrade with no Claude session open)' -f $installed.Text, $latest.Text)
-                })
-            }
-        }
-    }
 } catch {
     # Never expose an exception: parser and native diagnostics can include config secrets.
     if ($writeStarted -and -not $validated -and $backup) {

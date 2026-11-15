@@ -14,7 +14,7 @@ The user wants Codex and Claude Code to operate as ONE consistent ecosystem with
 
 **How to apply — role split:**
 - **Codex = main coding engine.** Primary model since 2026-09-06: **GPT-6 Astra** (`gpt-6-astra`, high, priority; see [[codex-gpt6-astra]]). Before that, since 2026-08-01: **GPT-5.6-Sol** (`gpt-5.6-sol`, "latest frontier agentic coding model", 272k context, efforts low→ultra) at `model_reasoning_effort=high` + priority tier — switched from GPT-5.5 xhigh after a verified trial (slugify + tests, 7/7 pass, clean DRY/KISS code, 96s). Hand bulk implementation, scaffolding, and mechanical edits to Codex.
-- **Claude (Fable 5.1 / Opus 5) = planning, reasoning, debugging.** Use Claude for architecture/plan design, hard reasoning, root-cause debugging, code review, and orchestration. When those needs surface, Claude leads; otherwise delegate coding to Codex.
+- **Claude (Fable 5.2 / Opus 5) = planning, reasoning, debugging.** Use Claude for architecture/plan design, hard reasoning, root-cause debugging, code review, and orchestration. When those needs surface, Claude leads; otherwise delegate coding to Codex.
 
 **How to apply — invoking Codex from Claude Code:**
 - Codex CLI is on PATH: `codex` (`C:\Users\ASUS\AppData\Local\Programs\OpenAI\Codex\bin\codex.exe`, v0.135.0).
@@ -65,4 +65,4 @@ See [[codex-agents-rules]] for the shared safety/operating rules and [[codex-set
 - 2026-09-28: settings.json model was found at opus[1m] (drifted since ~09-19); Line asked to restore it to claude-fable-5-1[1m] to match the CLAUDE.md supervisor rule. Done; takes effect on the next session.
 
 ## Supervisor model change 2026-09-28 (Line approved)
-Fable weekly quota hit 96% (shared weekly pool 51%). Line: "giảm gánh nặng bằng Opus 5.5". Applied: settings.json model `claude-opus-5-5[1m]` + `effortLevel: high` (Opus 5.5 defaults to medium); CLAUDE.md supervisor rule = Opus 5.5 default, `/model` to Fable 5.1 for layer-3 at Important (Critical: Fable 5.2 since 2026-11-14), hard root-cause, architecture; layer-2b subagent stays Fable 5.1; second-brain skill primary `claude-opus-5-5`. Opus 5.5 API price $4/$20 vs Fable $10/$50, same 1M context. Unmeasured: Opus 5.5 layer-3 catch rate; watch the ledger. Takes effect next session.
+Fable weekly quota hit 96% (shared weekly pool 51%). Line: "giảm gánh nặng bằng Opus 5.5". Applied: settings.json model `claude-opus-5-5[1m]` + `effortLevel: high` (Opus 5.5 defaults to medium); CLAUDE.md supervisor rule = Opus 5.5 default, `/model` to Fable 5.1 (until 2026-11-15) for layer-3 at Important (Critical: Fable 5.2 since 2026-11-14), hard root-cause, architecture; layer-2b subagent stays Fable 5.1 (until 2026-11-15); second-brain skill primary `claude-opus-5-5`. Opus 5.5 API price $4/$20 vs Fable $10/$50, same 1M context. Unmeasured: Opus 5.5 layer-3 catch rate; watch the ledger. Takes effect next session. Superseded 2026-11-15: Line moved every Fable step (L3 Important, subagents, root-cause) to Fable 5.2.

@@ -53,6 +53,9 @@ function Select-CodexSandboxMode { return [pscustomobject]@{Mode='elevated'} }
   Assert-True ($LASTEXITCODE -eq 0 -and $output -contains 'fixture RAM status' -and $output -notcontains 'fixture RAM diagnostic') 'dispatcher calls RAM status and continues even on false'
   $output = & powershell -NoProfile -ExecutionPolicy Bypass -File $path -NoRamCheck
   Assert-True ($LASTEXITCODE -eq 0 -and $output -notcontains 'fixture RAM status') 'dispatcher NoRamCheck skips wait'
+  # Intent: load dependencies omitted by function-only imports. Status: fixed. Next: host suite. Blockers: none. Confidence: RAM regression checks.
+  . (Join-Path $PSScriptRoot '..\bin\review-findings-lib.ps1')
+  . (Join-Path $PSScriptRoot '..\bin\packet-lint.ps1')
   . (Import-TestFunctions (Join-Path $PSScriptRoot '..\bin\codex-review.ps1'))
   function Get-CodexActiveAccount { 'main' }
   function Resolve-CodexAccountHome { $fixture }

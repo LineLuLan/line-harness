@@ -5,7 +5,7 @@
   "description": "Local, bounded agent-log metrics collector for Line",
   "engines": { "node": ">=24.15.0 <25" },
   "scripts": {
-    "test": "node --test \"tests/*.test.js\"",
+    "test": "node --test --test-concurrency=1 \"tests/*.test.js\"",
     "collect": "node collector/collect.js",
     "bench": "node bench/bench.js",
     "hub": "node server/server.js --open"

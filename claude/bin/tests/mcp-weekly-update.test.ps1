@@ -22,8 +22,6 @@ outside = "@upstash/context7-mcp@3.2.5"
 args = [
     "@upstash/context7-mcp@3.2.5",
 ]
-[mcp_servers.codegraph]
-args = ["@colbymchenry/codegraph@1.5.0"]
 [mcp_servers.private.env]
 token = "SECRET-DO-NOT-LOG"
 same_text = "@upstash/context7-mcp@3.2.5"
@@ -44,14 +42,14 @@ same_text = "@upstash/context7-mcp@3.2.5"
     $env:MW_CASE = $Mode
     $env:MW_ROOT = $caseRoot
     $arguments = @('-ConfigPath', $config, '-LogPath', $log, '-NpmBin', (Join-Path $fixture 'npm.cmd'),
-        '-CodexBin', (Join-Path $fixture 'codex.cmd'), '-CodegraphBin', (Join-Path $fixture 'codegraph.cmd'))
+        '-CodexBin', (Join-Path $fixture 'codex.cmd'))
     if ($DryRun) { $arguments += '-DryRun' }
     $output = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $updater @arguments 2>&1)
     Assert-True ($LASTEXITCODE -eq 0) "$Name exit code"
     $logText = [IO.File]::ReadAllText($log)
     Assert-True (($output -join "`n") -notmatch 'SECRET-DO-NOT-LOG' -and $logText -notmatch 'SECRET-DO-NOT-LOG') "$Name never exposes secret"
     $lines = @($logText.TrimEnd() -split "`n")
-    Assert-True ($lines.Count -eq $(if ($Mode -eq 'report') { 3 } else { 2 })) "$Name one log per pin plus report"
+    Assert-True ($lines.Count -eq 1) "$Name one log per pin"
     foreach ($line in $lines) { Assert-True ($line -match '^\d{4}-\d{2}-\d{2}T[0-9:.]+Z\|[^|]+\|\d+\.\d+\.\d+\|[^|]+\|[^|]+$') "$Name structured UTC log" }
     $after = [Convert]::ToBase64String([IO.File]::ReadAllBytes($config))
     $backups = @(Get-ChildItem -LiteralPath $caseRoot -File | Where-Object { $_.Name -match '^config\.toml\.bak-mcpweekly-\d{8}-\d{6}$' })
@@ -79,9 +77,6 @@ same_text = "@upstash/context7-mcp@3.2.5"
             -not (Test-Path -LiteralPath "$config.bak-mcpweekly-20261002-000000")) 'retains newest four backups'
         Assert-True ((Test-Path -LiteralPath "$config.bak-unrelated") -and (Test-Path -LiteralPath "$config.bak-mcpweekly-other.txt")) 'retention leaves unrelated files'
     }
-    if ($Mode -eq 'report') {
-        Assert-True ($logText -match '\|codegraph\|1.4.0\|1.5.0\|report:codegraph 1.4.0 -> 1.5.0 \(run codegraph upgrade with no Claude session open\)') 'global codegraph report'
-    }
     if ($Crlf) { Assert-True ([IO.File]::ReadAllText($config) -notmatch '(?<!\r)\n') 'CRLF preserved' }
     if ($Mode -eq 'timeout') {
         $identity = [IO.File]::ReadAllText((Join-Path $caseRoot 'hanging-child.txt')).Split('|')
@@ -101,7 +96,7 @@ same_text = "@upstash/context7-mcp@3.2.5"
 try {
     [void][IO.Directory]::CreateDirectory($fixture)
     $env:MCP_WEEKLY_NOTIFY = '0'
-    foreach ($tool in @('npm', 'codex', 'codegraph')) {
+    foreach ($tool in @('npm', 'codex')) {
         Write-Text (Join-Path $fixture "$tool.cmd") ("@echo off`r`n`"$PSHOME\powershell.exe`" -NoProfile -ExecutionPolicy Bypass -File `"%~dp0fake.ps1`" $tool %*`r`nexit /b %errorlevel%`r`n")
     }
     Write-Text (Join-Path $fixture 'fake.ps1') @'
@@ -112,22 +107,14 @@ if ($Tool -eq 'codex') {
     if (($ToolArgs -join ' ') -ne 'mcp list --json') { exit 9 }
     if ($env:MW_CASE -eq 'validate-fails') { exit 1 }
     if ($env:MW_CASE -eq 'invalid-json') { Write-Output '{broken'; exit 0 }
-    if ($env:MW_CASE -eq 'missing-server') { Write-Output '[{"name":"codegraph"}]'; exit 0 }
-    Write-Output '[{"name":"context7"},{"name":"codegraph"}]'; exit 0
-}
-if ($Tool -eq 'codegraph') {
-    if (($ToolArgs -join ' ') -ne '--version') { exit 9 }
-    if ($env:MW_CASE -eq 'report') { Write-Output '1.4.0' } else { Write-Output '1.6.2' }
-    exit 0
+    if ($env:MW_CASE -eq 'missing-server') { Write-Output '[{"name":"unrelated"}]'; exit 0 }
+    Write-Output '[{"name":"context7"}]'; exit 0
 }
 if ($Tool -ne 'npm') { exit 9 }
 if ($ToolArgs[0] -eq 'cache' -and $ToolArgs[1] -eq 'add') {
     if ($env:MW_CASE -eq 'cache-fails') { exit 1 }; exit 0
 }
 if ($ToolArgs[0] -ne 'view' -or $ToolArgs[2] -ne 'version') { exit 9 }
-if ($ToolArgs[1] -eq '@colbymchenry/codegraph') {
-    Write-Output '1.5.0'; exit 0
-}
 if ($env:MW_CASE -eq 'timeout') {
     [IO.File]::WriteAllText((Join-Path $env:MW_ROOT 'hanging-child.txt'), ($PID.ToString() + '|' + (Get-Process -Id $PID).StartTime.ToUniversalTime().Ticks), $utf8)
     Start-Sleep -Seconds 120
@@ -135,7 +122,7 @@ if ($env:MW_CASE -eq 'timeout') {
 }
 if ($env:MW_CASE -eq 'garbage') { Write-Output 'not-a-version'; exit 0 }
 if ($env:MW_CASE -eq 'view-fails') { Write-Output '4.3.0'; exit 1 }
-if ($env:MW_CASE -in @('current', 'report')) { Write-Output '3.2.5' } else { Write-Output '4.3.0' }
+if ($env:MW_CASE -eq 'current') { Write-Output '3.2.5' } else { Write-Output '4.3.0' }
 exit 0
 '@
     Test-Update 'current' 'current'
@@ -148,7 +135,6 @@ exit 0
     Test-Update 'invalid-json' 'invalid-json'
     Test-Update 'missing-server' 'missing-server'
     Test-Update 'retention' 'current' -Retention
-    Test-Update 'codegraph-report' 'report'
     Test-Update 'crlf' 'newer' -Crlf
     Test-Update 'timeout' 'timeout'
     $missingOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $updater -ConfigPath (Join-Path $fixture 'missing.toml') 2>&1)

@@ -689,7 +689,6 @@ function routeInputOf(rows) {
  * Codex level C3 used >= 95; C2 pace > 1.3 or used >= 85; C1 pace > 1.0 or used >= 70; else C0.
  * Claude K1 = 7-day pace > 1.2 or used >= 70; K5 flag = 5-hour used >= 80 (handoff, rows still shown).
  * STOP = C3 and K1 only (Line 2026-11-15); K1+C2 Standard tasks are never deferred.
- * The "over daily budget" rule is not implemented (no daily-budget data): a note says so.
  * Intent: Hub tells Line today's routing. Status: done. Next: H8b may log advice vs actual model.
  * Blockers: none. Confidence: tests/h8a-route.test.js (every cell + boundaries). */
 const DEFAULT_ROUTE = { codexPace1: 1.0, codexPace2: 1.3, codexUsed1: 70, codexUsed2: 85, codexUsed3: 95, claudePace: 1.2, claudeUsed: 70, claude5Used: 80 };
@@ -704,7 +703,7 @@ const DEFAULT_MATRIX = {
   K1: { C0: [RM.sol, RM.astra, RM.astra, RM.luna, RM.l2astra], C1: [RM.sol, RM.sbCond, RM.astra, RM.explore, RM.l2astra],
     C2: [RM.sol, RM.sol, RM.astraNr, RM.explore, RM.l2astra] }
 };
-const DEFAULT_LAYER3 = { K0: 'Fable via /model', K1: 'Opus supervisor (Fable only for Critical)', critical: 'Fable 5.2 high via /model claude-fable-5-2' };
+const DEFAULT_LAYER3 = { K0: 'Fable 5.2 high via /model claude-fable-5-2', K1: 'Opus supervisor (Fable only for Critical)', critical: 'Fable 5.2 high via /model claude-fable-5-2' };
 const DEFAULT_ALERTS = { quotaPace: 1.3, quotaUsed: 85, handoffUsed: 80, commitPct: 90, diskFreePct: 10, folderDays: 14, cleanDrop: 15, cleanMinTasks: 3,
   vhdxGB: 80, staleSecs: 600, threadTokens: 50e6, threadActiveHours: 48 };
 
@@ -832,7 +831,6 @@ function routeAdvice(input = {}) {
   if (cu === null && cp === null) notes.push('no Codex data');
   if (cp === null && cu !== null) notes.push('Codex pace early or unknown: only its used % counts');
   if (kp === null && ku !== null) notes.push('Claude 7-day pace early or unknown: only its used % counts');
-  notes.push('daily budget rule not tracked');
   if (stop) {
     const why = notes[0].replace(/\. No new packets.*$/, '');
     return { codexLevel, claudeLevel, stop, handoff, notes, thresholds: ROUTE, rows: ROUTE_WORK.map(work => ({ work, model: STOP_TEXT, rule: why })) };

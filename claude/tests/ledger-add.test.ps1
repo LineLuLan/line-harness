@@ -66,13 +66,19 @@ try {
 
   $lone = Join-Path $fixture 'lone.md'
   [IO.File]::WriteAllText($lone, "GOAL: nothing ran this.`n", $utf8)
+  # Intent: reject unmatched specs before mutation. Status: regression. Next: install. Blockers: none. Confidence: exact bytes and child exit.
+  $beforeNoMatch = [Convert]::ToBase64String([IO.File]::ReadAllBytes($linkPath))
+  $message = ''
+  try { & $writer @link -SpecFile $lone -RunsRoot $runsRoot | Out-Null } catch { $message = $_.Exception.Message }
+  Assert-True ($message -ceq 'ledger-add: no codex-do run matched the spec; pass -RunIds, or omit -SpecFile and say why in -Note') 'no match throws exact guidance'
+  Assert-True ([Convert]::ToBase64String([IO.File]::ReadAllBytes($linkPath)) -ceq $beforeNoMatch) 'no match leaves existing ledger bytes unchanged'
   $errFile = Join-Path $fixture 'stderr.txt'
   $outFile = Join-Path $fixture 'stdout.txt'
   $noMatchPath = Join-Path $fixture 'nomatch.log'
   $argList = @('-NoProfile','-ExecutionPolicy','Bypass','-File',$writer,'-Tier','Important','-Layer2','yes','-L1','0','-L2','1','-L3','0','-Note','Line fixture','-Worker','fixture-model','-Type','review','-FailRounds','1','-Findings','L1:0,L2:1,L3:0','-Path',$noMatchPath,'-SpecFile',$lone,'-RunsRoot',$runsRoot)
   $proc = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList ($argList | ForEach-Object { '"' + $_ + '"' }) -NoNewWindow -Wait -PassThru -RedirectStandardError $errFile -RedirectStandardOutput $outFile
   $errText = [IO.File]::ReadAllText($errFile)
-  Assert-True ($proc.ExitCode -eq 0 -and $errText -match 'no codex-do run matched the spec') 'no match: warning on stderr, exit 0'
-  Assert-True ([IO.File]::ReadAllText($noMatchPath) -ceq ($base + "`n")) 'no match: line still written without runs field'
+  Assert-True ($proc.ExitCode -ne 0 -and $errText -match 'no codex-do run matched the spec') 'no match: terminating error on stderr, nonzero exit'
+  Assert-True (-not (Test-Path -LiteralPath $noMatchPath)) 'no match: no ledger created'
 } finally { Remove-TestFolder $fixture }
 Complete-Tests

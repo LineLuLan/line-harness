@@ -48,8 +48,7 @@ Shell: long or multi-line commands go through the PowerShell tool or a script fi
 | Work | Model |
 | --- | --- |
 | Planning, packets, verdicts, ship, memory, Line-facing replies | Opus 5.5 high (session default) |
-| Layer-3 verification at Important, hard root-cause, architecture | Fable 5.1 high via `/model` |
-| Critical: layer 3, the Fable review subagent, and the pre-dispatch packet read (Line, 2026-11-14) | Fable 5.2 high (`/model claude-fable-5-2`). The Agent tool only takes the `fable` alias; on 2026-11-14 a `fable` subagent reported itself as `claude-fable-5-2` (model self-report), so Fable subagents already run 5.2 - re-check if the alias changes |
+| Layer-3 verification at Important and Critical, the Fable review subagent, the pre-dispatch packet read, hard root-cause, architecture | Fable 5.2 high (`/model claude-fable-5-2`). The Agent tool only takes the `fable` alias; on 2026-11-14 a `fable` subagent reported itself as `claude-fable-5-2` (model self-report), so Fable subagents already run 5.2 - re-check if the alias changes |
 | Standard-A (1-2 files, runnable VALIDATE, single-branch logic, worked examples) | `gpt-6-sol` high |
 | Standard-B (3+ files, long command chains, repo discovery, vague VALIDATE, prior Sol STOP/FAIL), Important, Critical | `gpt-6-astra` high |
 | Exploration | `gpt-6-luna` max first, then `gpt-6-sol` ultra for synthesis |
@@ -59,13 +58,13 @@ Never start at xhigh. Write the tier into the packet header before dispatch. The
 
 ## Route by quota pace
 
-Pace = used % / % of the window elapsed. Daily budget per side = 15% of the week; over budget = today's burn above 20%. Check pace at session start and before each Important packet (statusline or Line Hub "Today's routing"). These rules override the routing table; the Claude bullets win for workers and reviews when both sides are stressed.
+Pace = used % / % of the window elapsed. Check pace at session start and before each Important packet (statusline or Line Hub "Today's routing"). These rules override the routing table; the Claude bullets win for workers and reviews when both sides are stressed.
 
 <!-- ontology:quota:begin -->
 | Codex quota | Route |
 | --- | --- |
 | Pace <= 1.0 and used < 70% | Normal routing table. |
-| Pace > 1.0 to 1.3, used 70-84%, or over daily budget | Standard-B with <= 3 files and a runnable VALIDATE goes to `gpt-6-sol` high. No Luna exploration (Claude Explore subagent). Layer 2 = Fable subagent. |
+| Pace > 1.0 to 1.3, used 70-84% | Standard-B with <= 3 files and a runnable VALIDATE goes to `gpt-6-sol` high. No Luna exploration (Claude Explore subagent). Layer 2 = Fable subagent. |
 | Pace > 1.3 or used 85-94% | Codex for Important/Critical. Standard work goes to an Opus subagent with the same packet (if Claude is stressed too, see below). No resumes. |
 | Used >= 95% | No Codex. Opus subagent = worker, Fable subagent = layer 2, ledger `worker=opus`. |
 
@@ -89,11 +88,11 @@ The implementer never grades itself. Layers: (1) deterministic gates, (2) fresh-
 | --- | --- |
 | Skip (under ~20 lines of config, typo, docs) | 3 |
 | Standard-A / Standard-B | 1 + 3 (`codex-review.ps1 -SkipModel`); layer 2 optional over ~150 lines, logged |
-| Important (multi-file, API contract, shared module) | 1 + 2 (`gpt-6-astra`, mandatory) + a Fable 5.1 subagent + 3 |
+| Important (multi-file, API contract, shared module) | 1 + 2 (`gpt-6-astra`, mandatory) + a Fable subagent + 3 |
 | Critical (security, payment, auth, migration) | Important + Line approves in writing |
 <!-- ontology:review-tiers:end -->
 
-Important packets get a pre-dispatch read by a Fable subagent (packet only, about 5 minutes). At Critical every Fable step uses Fable 5.2.
+Important packets get a pre-dispatch read by a Fable subagent (packet only, about 5 minutes). Every Fable step uses Fable 5.2.
 
 On FAIL the worker fixes and a NEW reviewer session runs. After 2 FAILs at Important/Critical (3 at Standard) stop, report to Line, and redesign. After every delegated task append one line to `~/.claude/state/review-ledger.log` with `bin/ledger-add.ps1`: `date|tier|layer2 yes/no|L1|L2|L3|note|worker=<model>|type=<ui|collector|review|research|docs|config|other>|fail_rounds=<int>|findings=L1:<n>,L2:<n>,L3:<n>`. Old 7-field lines stay valid.
 Record every Fable layer-2 finding and every layer-3 defect with bin/finding-add.ps1 (codex-review records its own).

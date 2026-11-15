@@ -6,3 +6,5 @@ auth.json
 *.log
 node_modules/
 .packets/
+
+claude/skills/synced/

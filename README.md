@@ -119,7 +119,7 @@ The full operating policy is in `codex/AGENTS.md` (shared rules) and `claude/CLA
 | `claude/mcp-servers.json` | `mcpServers` in `~/.claude.json` | MCP server definitions (tokens removed) |
 | `claude/plugins/` | `~/.claude/plugins/` | Installed plugin and marketplace lists |
 | `codex/AGENTS.md`, `codex/config.toml`, `codex/hooks.json` | `~/.codex/` | Codex rules, configuration, and hooks |
-| `codex/hooks/`, `codex/rules/`, `codex/skills/`, `codex/skills-archive/` | `~/.codex/` | Codex hooks, rules, active and archived skills |
+| `codex/rules/`, `codex/skills/`, `codex/skills-archive/` | `~/.codex/` | Codex rules, active and archived skills |
 | `hub/` | runs in place | Line Hub: local dashboard (collector, server, web UI, tests). Start with `npm run hub` in `hub/` |
 | `terminal/windows-terminal-settings.json` | Windows Terminal `LocalState/settings.json` | Windows Terminal profiles and theme |
 | `scheduled-tasks/*.xml` | Task Scheduler | Weekly MCP update and Docker RAM tracker (headless through `conhost.exe --headless`) |
@@ -153,6 +153,24 @@ The status line's OpenRouter row reads the `OPENROUTER_API_KEY` environment vari
 
 Credentials (`auth.json`, `.credentials.json`, `.env`), API tokens, conversation transcripts, session logs, and caches. All files were scanned for secrets before publication. The one live token found (a GitHub token in an MCP header) was replaced with `${GITHUB_PAT_TOKEN}`.
 
+## Credits
+
+Some parts come from other projects. Each keeps its own licence; the MIT licence of this repository does not replace it. Licences were checked on GitHub on 2026-11-15.
+
+| Part in this repository | Source | Licence |
+| --- | --- | --- |
+| `claude/statusline-ultrathink.js` (redesigned) | [InugamiDev/ultrathink-oss](https://github.com/InugamiDev/ultrathink-oss) statusline | MIT |
+| `impeccable-*` skills (adapted) | [pbakaus/impeccable](https://github.com/pbakaus/impeccable) | Apache-2.0 (the copies are modified) |
+| `gsd-*` skills (adapted) | [gsd-build/get-shit-done](https://github.com/gsd-build/get-shit-done) | MIT |
+| `ui-ux-pro-max` skill (adapted edition) | [nextlevelbuilder/ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) | MIT |
+| `vercel-react-native-skills` | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills) | MIT (stated in its SKILL.md) |
+| `codex/skills/.system/*` | Bundled with the OpenAI Codex CLI | Apache-2.0 (licence file in each folder) |
+| `codex/skills-archive/compliance-checker` | Affitor | MIT (licence file in the folder) |
+| `twohearts-*` skills | Twohearts-Technologies/SKILLs-repository (team bank) | Published with the team's knowledge; ask the team before reuse |
+| `vc-*` skills | Source not recorded | Ask before reuse |
+
+Account-synced Claude skills (`claude/skills/synced/`) are not published.
+
 ## License
 
-MIT. See `LICENSE`.
+MIT for the original parts. See `LICENSE` and the Credits table above.

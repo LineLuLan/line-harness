@@ -84,7 +84,7 @@ function Invoke-Review([string]$Name, [string[]]$ReviewArgs) {
           Assert-True ($fact.layer -eq 2 -and $null -eq $fact.severity -and $fact.category -ceq 'other' -and $fact.title -ceq $expectedTitle -and $null -eq $fact.quote) "$Name records the format violation"
         } else { Assert-True ($fact.kind -ceq 'finding') "$Name records finding kind" }
         if ($fact.layer -eq 1) {
-          $category = if ($fact.title -match '^(typecheck|lint) ') { 'formatter-lint' } else { 'fixture-secret' }
+          $category = if ($fact.title -match '^psparse ') { 'ps51-traps' } elseif ($fact.title -match '^(typecheck|lint) ') { 'formatter-lint' } else { 'fixture-secret' }
           Assert-True ($fact.category -eq $category -and $fact.severity -eq 'P2' -and $null -eq $fact.quote -and $null -eq $fact.location -and $null -eq $fact.reviewer -and $null -eq $fact.criterion) "$Name gate facts contain no diagnostics"
         }
       }
@@ -184,6 +184,60 @@ process.exit(cp.spawnSync(command, { shell: true, stdio: 'inherit' }).status || 
   Write-Fixture "function add(a,b) {`n  return a+b;`n}`n"
   $result = Invoke-Review 'empty' @('-Dir', $repo)
   Assert-True ($result.Code -eq 0 -and $result.Text -match 'VERDICT: PASS \(empty diff\)') 'empty diff passes without Codex'
+
+  # Intent: prove scoped syntax gates and safe scope fallbacks. Status: regression. Next: install. Blockers: none. Confidence: child exits and findings.
+  $scopePacket = Join-Path $fixtureRoot 'scope packet.md'
+  $psFile = Join-Path $repo 'restore.ps1'
+  $moduleFile = Join-Path $repo 'module.psm1'
+  $dataFile = Join-Path $repo 'module.psd1'
+  $subdir = Join-Path $repo 'subdir'
+  [void][IO.Directory]::CreateDirectory($subdir)
+  try {
+    [IO.File]::WriteAllText($psFile, "Write-Output 'ok'`n", $utf8)
+    [IO.File]::WriteAllText($moduleFile, "function Test-Fixture { 'ok' }`n", $utf8)
+    [IO.File]::WriteAllText($dataFile, "@{ Key = 'ok' }`n", $utf8)
+    [IO.File]::WriteAllText($scopePacket, "FILES:`nrestore.ps1, module.psm1, module.psd1`nCONSTRAINTS: local", $utf8)
+    $result = Invoke-Review 'psparse-pass' @('-Dir', $subdir, '-SpecFile', $scopePacket, '-SkipModel')
+    Assert-True ($result.Code -eq 0 -and $result.Text -match 'PATHS FROM PACKET: 3 path\(s\)' -and $result.Text -match 'GATE psparse: PASS') 'parse all PowerShell extensions from repo root when Dir is nested'
+    [IO.File]::WriteAllText($psFile, "function Broken {`n", $utf8)
+    $result = Invoke-Review 'psparse-fail' @('-Dir', $repo, '-SpecFile', $scopePacket, '-SkipModel')
+    Assert-True ($result.Code -eq 1 -and $result.Text -match 'GATE psparse: FAIL' -and $result.Text -match 'restore.ps1:1:') 'syntax failure blocks review with file and line'
+    foreach ($extension in @('psm1','psd1')) {
+      [IO.File]::WriteAllText($psFile, "'ok'`n", $utf8)
+      $brokenFile = Join-Path $repo "module.$extension"
+      $originalText = [IO.File]::ReadAllText($brokenFile)
+      [IO.File]::WriteAllText($brokenFile, "@{`n", $utf8)
+      $result = Invoke-Review "psparse-$extension-fail" @('-Dir', $repo, '-SpecFile', $scopePacket, '-SkipModel')
+      Assert-True ($result.Code -eq 1 -and $result.Text -match "module\.${extension}:1:") "syntax gate includes .$extension"
+      [IO.File]::WriteAllText($brokenFile, $originalText, $utf8)
+    }
+    [IO.File]::WriteAllText($psFile, ((1..12 | ForEach-Object { ")`n" }) -join ''), $utf8)
+    $result = Invoke-Review 'psparse-cap' @('-Dir', $repo, '-SpecFile', $scopePacket, '-SkipModel')
+    Assert-True ($result.Code -eq 1 -and @([regex]::Matches($result.Text, '(?m)^restore\.ps1:\d+:')).Count -eq 10) 'syntax diagnostics capped at ten'
+    Write-Fixture "function add(a,b) { return a+b; }`n"
+    [IO.File]::WriteAllText($scopePacket, "FILES: a.js`nCONSTRAINTS: local", $utf8)
+    $result = Invoke-Review 'packet-gate-scope' @('-Dir', $repo, '-SpecFile', $scopePacket, '-SkipModel')
+    Assert-True ($result.Code -eq 0 -and $result.Text -match 'GATE psparse: SKIP \(no changed PowerShell files\)' -and $result.Text -match 'PATHS WARNING:.*restore.ps1') 'packet scope excludes unrelated broken PowerShell'
+    $result = Invoke-Review 'packet-all-paths' @('-Dir', $repo, '-SpecFile', $scopePacket, '-AllPaths', '-SkipModel')
+    Assert-True ($result.Code -eq 1 -and $result.Text -notmatch 'PATHS FROM PACKET:' -and $result.Text -match 'GATE psparse: FAIL') 'AllPaths reviews the whole diff'
+    $result = Invoke-Review 'packet-explicit-paths' @('-Dir', $repo, '-SpecFile', $scopePacket, '-Paths', 'restore.ps1', '-SkipModel')
+    Assert-True ($result.Code -eq 1 -and $result.Text -notmatch 'PATHS FROM PACKET:') 'explicit Paths overrides packet'
+    $result = Invoke-Review 'packet-explicit-all-paths' @('-Dir', $repo, '-SpecFile', $scopePacket, '-Paths', 'a.js', '-AllPaths', '-SkipModel')
+    Assert-True ($result.Code -eq 0 -and $result.Text -match 'GATE psparse: SKIP') 'explicit Paths also wins over AllPaths'
+    $result = Invoke-Review 'packet-explicit-no-match' @('-Dir', $repo, '-SpecFile', $scopePacket, '-Paths', 'missing/path.ps1', '-SkipModel')
+    Assert-True ($result.Code -eq 0 -and $result.Text -notmatch 'PATHS FROM PACKET:') 'explicit zero-match Paths keeps caller scope'
+    [IO.File]::WriteAllText($scopePacket, "FILES: missing/path.ps1`nCONSTRAINTS: local", $utf8)
+    $result = Invoke-Review 'packet-zero-match' @('-Dir', $repo, '-SpecFile', $scopePacket, '-SkipModel')
+    Assert-True ($result.Code -eq 1 -and $result.Text -match 'PATHS FROM PACKET: matched 0 changed files; reviewing the whole diff') 'zero-match packet falls back and catches broken file'
+    [IO.File]::WriteAllText($scopePacket, "FILES:`nCONSTRAINTS: local", $utf8)
+    $result = Invoke-Review 'packet-empty-files' @('-Dir', $repo, '-SpecFile', $scopePacket, '-SkipModel')
+    Assert-True ($result.Code -eq 1 -and $result.Text -match 'PATHS FROM PACKET: none found; reviewing the whole diff') 'empty packet scope falls back to whole diff'
+    $result = Invoke-Review 'psparse-skip-gates' @('-Dir', $repo, '-SpecFile', $scopePacket, '-SkipGates', '-SkipModel')
+    Assert-True ($result.Code -eq 0 -and $result.Text -match 'GATE psparse: SKIP \(-SkipGates\)') 'SkipGates skips broken PowerShell'
+  } finally {
+    foreach ($file in @($psFile,$moduleFile,$dataFile)) { Remove-Item -LiteralPath $file -ErrorAction SilentlyContinue }
+    Write-Fixture "function add(a,b) {`n  return a+b;`n}`n"
+  }
 
   $untracked = Join-Path $repo 'untracked.js'
   try {
@@ -314,6 +368,26 @@ if (mode === 'unknown') {
   Assert-True ((Get-Content -LiteralPath $trail | Select-Object -Last 1) -match '^\d+\|review\|gpt-6-astra\|high\|') 'dispatch trail uses review/model/effort fields'
   Assert-True (-not (Test-Path -LiteralPath (Join-Path $env:USERPROFILE '.claude\state\dispatch-trail.lock'))) 'dispatch lock is released'
 
+  # Intent: prove packet scope reaches layer 2 and relative paths preserve log identity. Status: regression. Next: install. Blockers: none. Confidence: captured stdin and JSONL.
+  $outside = Join-Path $repo 'outside.js'
+  [IO.File]::WriteAllText($outside, "// outside-packet-marker`n", $utf8)
+  [IO.File]::WriteAllText($scopePacket, $packetText.Replace("FILES:`nexcluded-marker", 'FILES: a.js'), $utf8)
+  Push-Location -LiteralPath $fixtureRoot
+  try {
+    $result = Invoke-Review 'packet-relative-model' @('-Dir', $repo, '-SpecFile', '.\scope packet.md')
+    $record = Get-Content -Raw -LiteralPath (Join-Path $fixtureRoot 'mock-record.json') | ConvertFrom-Json
+    $entry = Get-Content -LiteralPath $env:CODEX_REVIEW_LOG | Select-Object -Last 1 | ConvertFrom-Json
+    Assert-True ($result.Code -eq 0 -and $result.Text -match 'PATHS FROM PACKET: 1 path\(s\)' -and $result.Text -match 'PATHS WARNING:.*outside.js') 'relative SpecFile resolves before changing directory'
+    Assert-True ($entry.specFile -ceq '.\scope packet.md') 'relative SpecFile string remains unchanged in log'
+    Assert-True ($record.Input -match 'A harmless comment' -and $record.Input -notmatch 'outside-packet-marker') 'layer 2 receives only packet FILES diff'
+    $result = Invoke-Review 'packet-model-all-paths' @('-Dir', $repo, '-SpecFile', '.\scope packet.md', '-AllPaths')
+    $record = Get-Content -Raw -LiteralPath (Join-Path $fixtureRoot 'mock-record.json') | ConvertFrom-Json
+    Assert-True ($result.Code -eq 0 -and $record.Input -match 'outside-packet-marker') 'AllPaths includes whole diff in layer 2'
+  } finally {
+    Pop-Location
+    Remove-Item -LiteralPath $outside -ErrorAction SilentlyContinue
+  }
+
   # Intent: exercise coverage through SpecFile, model transport and logging. Status: offline fixtures.
   # Next: supervisor live review. Blockers: none. Confidence: actual exits and public verdicts.
   foreach ($mode in @('criteria-complete','criteria-unknown','criteria-missing','criteria-duplicate','criteria-fail')) {
@@ -332,7 +406,7 @@ if (mode === 'unknown') {
   Assert-True ($result.Code -eq 0 -and $record.Arguments -contains '--ignore-user-config') 'supported ignore-user-config is kept'
   Assert-True ($record.Arguments -notcontains 'notify=[]' -and $record.Arguments -notcontains 'mcp_servers.codex.enabled=false') 'ignore-user-config path needs no desktop overrides'
   Assert-True ($record.Input -match 'Custom reviewer criteria') 'trailing instructions reach stdin'
-  Assert-True (@([regex]::Matches($result.Text, 'GATE \w+: SKIP \(-SkipGates\)')).Count -eq 4) 'SkipGates bypasses all four gates'
+  Assert-True (@([regex]::Matches($result.Text, 'GATE \w+: SKIP \(-SkipGates\)')).Count -eq 5) 'SkipGates bypasses all five gates'
   $env:REVIEW_SELFTEST_MODE = 'fail'
   $result = Invoke-Review 'mock-fail' @('-Dir', $repo)
   # Intent: run the real reviewer with damaged ontology without mutating Line's source tree.
@@ -342,7 +416,7 @@ if (mode === 'unknown') {
   $isolatedOntology = Join-Path $isolatedRoot 'ontology\harness.ontology.json'
   [void][IO.Directory]::CreateDirectory($isolatedBin)
   [void][IO.Directory]::CreateDirectory((Split-Path -Parent $isolatedOntology))
-  foreach ($file in @('codex-review.ps1','review-findings-lib.ps1','codex-acc-lib.ps1','codex-sandbox-lib.ps1','ram-preflight.ps1')) {
+  foreach ($file in @('codex-review.ps1','review-findings-lib.ps1','codex-acc-lib.ps1','codex-sandbox-lib.ps1','ram-preflight.ps1','packet-lint.ps1')) {
     Copy-Item -LiteralPath (Join-Path $root $file) -Destination (Join-Path $isolatedBin $file)
   }
   $savedHelper = $helper; $savedMode = $env:REVIEW_SELFTEST_MODE

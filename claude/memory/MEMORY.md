@@ -4,7 +4,7 @@
 - [Line git authority](line-git-authority.md) — KHÔNG commit/push ở bất kỳ đâu trừ khi Line ra lệnh đích danh trong hội thoại hiện tại
 
 - [Codex AGENTS.md rules](codex-agents-rules.md) — shared "Autonomous Founder Engineer" operating + safety rules Claude follows for ecosystem consistency
-- [Codex/Claude ecosystem](codex-claude-ecosystem.md) — Codex = main coding (GPT-6 Sol for Skip/Standard-A, GPT-6 Astra for Standard-B/Important/Critical since 2026-09-28; exploration Luna max then Sol ultra); Claude Opus 5.5 high = supervisor default since 2026-09-28, Fable 5.1 via /model for L3 Important (Critical: Fable 5.2 since 2026-11-14) + hard root-cause; how to invoke `codex exec`
+- [Codex/Claude ecosystem](codex-claude-ecosystem.md) — Codex = main coding (GPT-6 Sol for Skip/Standard-A, GPT-6 Astra for Standard-B/Important/Critical since 2026-09-28; exploration Luna max then Sol ultra); Claude Opus 5.5 high = supervisor default since 2026-09-28, Fable 5.2 via /model for every Fable step (L3 Important + Critical, subagents, root-cause) since 2026-11-15; how to invoke `codex exec`
 - **GO-LIVE 2026-08-08**: máy chạy bank chung (75/78 skills) + Team AGENTS.md v1.0 + addendum §15 + plugin codex-rescue + hooks (delegation-reminder, codegraph-init-check) + codegraph indexed 7 TwoHearts repos; khôi phục từ D:\Backups\machine-snapshot-2026-08-08.zip (555MB); repo SKILLs-repository local KHÔNG push (chờ team)
 - [Codex setup overview](codex-setup-overview.md) — inventory of ~/.codex: config.toml, MCP servers, 128 skills, rules
 - [Claude mirrors Codex](claude-mirrors-codex.md) — .claude now mirrors .codex: CLAUDE.md imports AGENTS.md, 5 MCP servers wired, 128 skills copied (cx-code-review/cx-verify renamed)

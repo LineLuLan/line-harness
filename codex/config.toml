@@ -109,17 +109,6 @@ args = ["mcp-server-fetch"]
 [mcp_servers.fetch.env]
 PYTHONIOENCODING = "utf-8"
 
-[mcp_servers.codegraph]
-command = "cmd"
-args = [
-    "/c",
-    "npx.cmd",
-    "-y",
-    "@colbymchenry/codegraph@1.6.2",
-    "serve",
-    "--mcp",
-]
-
 [mcp_servers.github]
 url = "https://api.githubcopilot.com/mcp/"
 bearer_token_env_var = "GITHUB_PAT_TOKEN"

@@ -146,4 +146,45 @@ try {
       $result.warnings.Count -eq 1 -and $result.warnings[0] -eq 'ontology unreadable: lesson checks skipped') 'malformed ontology returns one warning under Stop'
   }
 } finally { Remove-TestFolder $folder }
+# Intent: define packet-derived review scope without changing lint. Status: regression. Next: install. Blockers: none. Confidence: exact ordered pathspecs.
+$scopeRoot = New-TestFolder
+try {
+  foreach ($name in @('restore.ps1','README.md','space name.ps1')) {
+    [IO.File]::WriteAllText((Join-Path $scopeRoot $name), '')
+  }
+  $absolute = $scopeRoot.Replace('\','/').ToUpperInvariant() + '/hub/web/app.js'
+  $scopePacket = @"
+GOAL: ignore/goal.ps1
+FILES:
+- claude/bin/x.ps1
+- codex/hooks/ (delete the folder and its 7 files)
+- claude/memory/a.md, claude/memory/b.md
+- $absolute
+- Z:/outside/secret.ps1
+- /outside/root.ps1
+- \\server\share\outside.ps1
+- ${scopeRoot}-other/outside.ps1
+- claude\bin\x.ps1
+- restore.ps1, README.md; missing.md
+- ../escape.ps1, claude/../escape.ps1
+- claude/bin/end.ps1.;:)
+- "space name.ps1"
+- "$scopeRoot/claude/path with spaces/a.ps1"
+- hooks/
+CONSTRAINTS: ignore/constraint.ps1
+VALIDATE: powershell tests/ignored.ps1
+"@
+  $paths = @(Get-PacketFilePaths -Text $scopePacket -RepoRoot $scopeRoot)
+  $expected = @('claude/bin/x.ps1','codex/hooks/','claude/memory/a.md','claude/memory/b.md','hub/web/app.js','restore.ps1','README.md','claude/bin/end.ps1','space name.ps1','claude/path with spaces/a.ps1','hooks/')
+  Assert-True (($paths -join '|') -ceq ($expected -join '|')) 'FILES tokens normalize, filter and deduplicate in order'
+  Assert-True (@(Get-PacketFilePaths -Text "FILES:`nCONSTRAINTS: src/no.ps1" -RepoRoot $scopeRoot).Count -eq 0) 'empty FILES returns no paths'
+  Assert-True (@(Get-PacketFilePaths -Text 'GOAL: src/no.ps1' -RepoRoot $scopeRoot).Count -eq 0) 'missing FILES returns no paths'
+  Assert-True ((@(Get-PacketFilePaths -Text '**FILES**: claude/bin/x.ps1' -RepoRoot $scopeRoot) -join '|') -ceq 'claude/bin/x.ps1') 'markdown inline FILES uses lint section rules'
+  Assert-True (@(Get-PacketFilePaths -Text 'FILES: claude/.., "claude/..;.)"' -RepoRoot $scopeRoot).Count -eq 0) 'terminal parent segments are rejected before punctuation trimming'
+  Assert-True ((@(Get-PacketFilePaths -Text 'FILES: "claude/bin/end.ps1;.:,)"' -RepoRoot $scopeRoot) -join '|') -ceq 'claude/bin/end.ps1') 'quoted paths trim all trailing punctuation'
+  # Touch-up 2026-11-15: root dotfiles and multi-dot root names stay in scope; globs are dropped, not cut to a folder.
+  [IO.File]::WriteAllText((Join-Path $scopeRoot '.gitignore'), 'x'); [IO.File]::WriteAllText((Join-Path $scopeRoot 'settings.local.json'), '{}')
+  $dotPaths = @(Get-PacketFilePaths -Text "FILES:`n- .gitignore`n- settings.local.json`n- claude/bin/*.ps1`n- .missing" -RepoRoot $scopeRoot)
+  Assert-True (($dotPaths -join '|') -ceq '.gitignore|settings.local.json') 'root dotfiles and multi-dot names kept; glob and missing dotfile dropped'
+} finally { Remove-TestFolder $scopeRoot }
 Complete-Tests

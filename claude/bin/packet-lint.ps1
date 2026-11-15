@@ -22,14 +22,9 @@ function Get-ApplicablePacketLessons {
   }
 }
 
-# Intent: reject incomplete packets before spending a worker run.
-# Status: dot-sourceable lint with local ontology input. Next: supervisor installs after review.
-# Blockers: none. Confidence: packet fixtures cover headings, commands and byte limits.
-function Test-Packet {
-  param([AllowEmptyString()][string]$Text, [switch]$AllowLarge,
-    [string]$Ontology = (Join-Path $PSScriptRoot '..\ontology\harness.ontology.json'))
-  $errors = New-Object 'Collections.Generic.List[string]'
-  $warnings = New-Object 'Collections.Generic.List[string]'
+# Intent: share section boundaries between lint and review scope. Status: extracted unchanged. Next: install. Blockers: none. Confidence: existing lint fixtures.
+function Get-PacketSections {
+  param([AllowEmptyString()][string]$Text)
   $sections = @{}
   $keys = 'GOAL|BUSINESS REASON|CONTEXT|SUCCESS CRITERIA|FILES|PATTERNS|CONSTRAINTS|NON-GOALS|DONE WHEN|VALIDATE|STOP RULES|ROLLBACK|TIER|KNOWN PITFALLS|PACKET CHECK|CHECKLIST|DOCS CHECKED'
   $heading = '(?i)^[#>*\s-]*(?<key>(?:' + $keys + ')(?:\s*/\s*(?:' + $keys + '))*)(?:\*\*)?\s*(?:\([^)\r\n]*\)\s*)?:\s*(?:\*\*)?\s*(?<value>.*)$'
@@ -59,6 +54,50 @@ function Test-Packet {
     } elseif ($current) { foreach ($key in $current) { $sections[$key].Add($line) } }
   }
   if ($null -ne $inlineType) { $type = $inlineType }
+  return [pscustomobject]@{ Sections = $sections; Tier = $tier; Type = $type; Markers = $markers }
+}
+
+# Intent: keep lint's path tokenizer as the shared source. Status: unchanged regex. Next: install. Blockers: none. Confidence: path-count fixtures.
+function Get-PacketPathPattern {
+  return '(?i)(?:[A-Z]:)?[\w.@-]+(?:[/\\][\w.@-]+)+|[\w@-]+\.[A-Z0-9]+'
+}
+
+# Intent: limit review to ordered repo paths in FILES. Status: normalized and bounded. Next: install. Blockers: none. Confidence: scope fixtures.
+function Get-PacketFilePaths {
+  param([AllowEmptyString()][string]$Text, [Parameter(Mandatory=$true)][string]$RepoRoot)
+  $sections = (Get-PacketSections -Text $Text).Sections
+  if (-not $sections.ContainsKey('FILES')) { return @() }
+  $root = [IO.Path]::GetFullPath($RepoRoot).Replace('\','/').TrimEnd('/') + '/'
+  $seen = @{}
+  # Retain absolute prefixes, folder suffixes and quoted spaces around the lint tokenizer.
+  # Touch-up 2026-11-15 (L2 Astra + Fable): bare root names may start with a dot or hold several dots (.gitignore, settings.local.json).
+  $tokenizer = '(?i)"[^"\r\n]+"|''[^''\r\n]+''|(?<![\w.@-])(?:\.?[\w@-]+(?:\.[\w@-]+)+|\.[\w@-]+)(?![\w.@/\\-])|(?:(?:[A-Z]:)?[/\\]+)?(?:' + (Get-PacketPathPattern) + '|[\w.@-]+[/\\])[/\\]?'
+  $filesText = $sections['FILES'] -join "`n"
+  foreach ($match in [regex]::Matches($filesText, $tokenizer)) {
+    $next = $match.Index + $match.Length
+    # A glob (claude/bin/*.ps1) would be cut to its folder and widen the scope silently: drop it.
+    if ($next -lt $filesText.Length -and '*?['.Contains($filesText[$next])) { continue }
+    $path = $match.Value.Trim('"', "'").Replace('\','/')
+    if ($path -match '(?:^|/)\.\.(?:/|[,.;:)]*$)') { continue }
+    $path = $path.TrimEnd(',.;:)')
+    if ($path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { $path = $path.Substring($root.Length) }
+    elseif ($path -match '^(?:[A-Z]:|/)') { continue }
+    if (-not $path) { continue }
+    if (-not $path.Contains('/') -and ($path -notmatch '^\.?[\w@ -]+(?:\.[\w@-]+)*\.[A-Z0-9]+$' -and $path -notmatch '^\.[\w@-]+$' -or -not (Test-Path -LiteralPath (Join-Path $RepoRoot $path)))) { continue }
+    if (-not $seen.ContainsKey($path)) { $seen[$path] = $true; $path }
+  }
+}
+
+# Intent: reject incomplete packets before spending a worker run.
+# Status: dot-sourceable lint with local ontology input. Next: supervisor installs after review.
+# Blockers: none. Confidence: packet fixtures cover headings, commands and byte limits.
+function Test-Packet {
+  param([AllowEmptyString()][string]$Text, [switch]$AllowLarge,
+    [string]$Ontology = (Join-Path $PSScriptRoot '..\ontology\harness.ontology.json'))
+  $errors = New-Object 'Collections.Generic.List[string]'
+  $warnings = New-Object 'Collections.Generic.List[string]'
+  $parsed = Get-PacketSections -Text $Text
+  $sections = $parsed.Sections; $tier = $parsed.Tier; $type = $parsed.Type; $markers = $parsed.Markers
   if ($type -and @('ui','collector','review','research','docs','config','other') -cnotcontains $type) {
     $warnings.Add("Unknown TYPE: $type.")
   }
@@ -120,7 +159,7 @@ function Test-Packet {
     $errors.Add('Packet exceeds 8 KB (UTF-8); use -AllowLarge to override.')
   }
   if ($sections.ContainsKey('FILES')) {
-    $paths = [regex]::Matches(($sections['FILES'] -join "`n"), '(?i)(?:[A-Z]:)?[\w.@-]+(?:[/\\][\w.@-]+)+|[\w@-]+\.[A-Z0-9]+')
+    $paths = [regex]::Matches(($sections['FILES'] -join "`n"), (Get-PacketPathPattern))
     if ($paths.Count -gt 8) { $warnings.Add("FILES lists $($paths.Count) paths (more than 8).") }
   }
   [pscustomobject]@{ ok = ($errors.Count -eq 0); errors = @($errors.ToArray()); warnings = @($warnings.ToArray()) }
