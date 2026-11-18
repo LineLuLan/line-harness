@@ -170,7 +170,7 @@ export function FlowDiagram() {
       <${Rail} y=${428} title="Quota & Routing Rail" steps=${[
         ['tile', C.art, 'db', 'Ontology', 'one source of rules'], ['tile', C.rule, 'gauge', 'Quota pace', 'used % / time elapsed %'],
         ['tile', C.rule, 'grid', 'Levels', 'Codex C0–C3 · Claude K'], ['tile', C.rule, 'route', 'Route matrix', 'work × level → model'],
-        ['hex', C.codex, 'swap', 'Fallback', 'Sol · Opus subagent'], ['hex', C.bad, 'stop', 'Only stop', 'Codex ≥ 95% + Claude hot']]} />
+        ['hex', C.codex, 'swap', 'Fallback', 'Sol · Opus subagent'], ['hex', C.codex, 'swap', 'Grok switch', 'Codex ≥ 95% → Grok auto']]} />
       <${Rail} y=${526} title="Safety Rail" steps=${[
         ['tile', C.art, 'list', 'Packet lint', 'headings · exit 74'], ['hex', C.claude2, 'eye', 'Fable pre-read', 'Important + Critical'],
         ['hex', C.good, 'lock', 'Sandbox', 'repo root as -Dir'], ['hex', C.good, 'grid', 'Dir lock', 'one worker per repo'],

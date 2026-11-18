@@ -8,3 +8,4 @@ node_modules/
 .packets/
 
 claude/skills/synced/
+.handoff/

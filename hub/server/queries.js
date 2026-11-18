@@ -688,20 +688,22 @@ function routeInputOf(rows) {
 /* routeAdvice(input): CLAUDE.md "Route by quota pace" as a pure function (H8a matrix, Line 2026-11-14).
  * Codex level C3 used >= 95; C2 pace > 1.3 or used >= 85; C1 pace > 1.0 or used >= 70; else C0.
  * Claude K1 = 7-day pace > 1.2 or used >= 70; K5 flag = 5-hour used >= 80 (handoff, rows still shown).
- * STOP = C3 and K1 only (Line 2026-11-15); K1+C2 Standard tasks are never deferred.
+ * C3 (K0 or K1) routes to Grok workers via codex-do auto, Critical to an Opus subagent (Line 2026-11-18); there is
+ * no stop rule, so `stop` is always false. K1+C2 Standard tasks are never deferred.
  * Intent: Hub tells Line today's routing. Status: done. Next: H8b may log advice vs actual model.
  * Blockers: none. Confidence: tests/h8a-route.test.js (every cell + boundaries). */
 const DEFAULT_ROUTE = { codexPace1: 1.0, codexPace2: 1.3, codexUsed1: 70, codexUsed2: 85, codexUsed3: 95, claudePace: 1.2, claudeUsed: 70, claude5Used: 80 };
 const DEFAULT_WORK = ['Standard-A', 'Standard-B', 'Important/Critical worker', 'Exploration', 'Layer-2 review', 'Layer-3 Important', 'Layer-3 Critical'];
 const RM = { sol: 'gpt-6-sol high', astra: 'gpt-6-astra high', astraNr: 'gpt-6-astra high (no resumes)', luna: 'gpt-6-luna max then gpt-6-sol ultra',
   sbCond: 'gpt-6-sol high if <=3 files and runnable VALIDATE, else gpt-6-astra high', opus: 'Opus subagent', explore: 'Claude Explore subagent',
-  fable: 'Fable subagent', l2astra: 'gpt-6-astra' };
-// Rows 0-4 (Standard-A .. Layer-2) per Claude level and Codex level. K1 + C3 is STOP (no row set).
+  fable: 'Fable subagent', l2astra: 'gpt-6-astra', grok: 'grok-4.7-build-fast xhigh (codex-do auto)',
+  grokImp: 'grok-4.7-build-fast xhigh; Critical: Opus subagent' };
+// Rows 0-4 (Standard-A .. Layer-2) per Claude level and Codex level; every cell has a row set (C3 = Grok, K5f 2026-11-18).
 const DEFAULT_MATRIX = {
   K0: { C0: [RM.sol, RM.astra, RM.astra, RM.luna, RM.l2astra], C1: [RM.sol, RM.sbCond, RM.astra, RM.explore, RM.fable],
-    C2: [RM.opus, RM.opus, RM.astraNr, RM.explore, RM.fable], C3: [RM.opus, RM.opus, RM.opus, RM.explore, RM.fable] },
+    C2: [RM.opus, RM.opus, RM.astraNr, RM.explore, RM.fable], C3: [RM.grok, RM.grok, RM.grokImp, RM.grok, RM.fable] },
   K1: { C0: [RM.sol, RM.astra, RM.astra, RM.luna, RM.l2astra], C1: [RM.sol, RM.sbCond, RM.astra, RM.explore, RM.l2astra],
-    C2: [RM.sol, RM.sol, RM.astraNr, RM.explore, RM.l2astra] }
+    C2: [RM.sol, RM.sol, RM.astraNr, RM.explore, RM.l2astra], C3: [RM.grok, RM.grok, RM.grokImp, RM.grok, RM.fable] }
 };
 const DEFAULT_LAYER3 = { K0: 'Fable 5.2 high via /model claude-fable-5-2', K1: 'Opus supervisor (Fable only for Critical)', critical: 'Fable 5.2 high via /model claude-fable-5-2' };
 const DEFAULT_ALERTS = { quotaPace: 1.3, quotaUsed: 85, handoffUsed: 80, commitPct: 90, diskFreePct: 10, folderDays: 14, cleanDrop: 15, cleanMinTasks: 3,
@@ -772,12 +774,14 @@ function loadOntology() {
       matrix[k] = {};
       for (const c of ['C0', 'C1', 'C2', 'C3']) {
         const row = routing.matrix?.[k]?.[c];
-        if (k === 'K1' && c === 'C3') { need(row === 'STOP', 'routing.matrix.K1.C3'); continue; }
+        // Intent: K1.C3 is a normal Grok row now; the old 'STOP' literal is invalid (whole-file fallback).
+        // Status: complete (K5f 2026-11-18). Next: none. Blockers: none. Confidence: tests/ontology.test.js.
         need(Array.isArray(row) && row.length === 5 && row.every(id => typeof id === 'string' && Object.hasOwn(routing.labels, id)), `routing.matrix.${k}.${c}`);
         matrix[k][c] = row.map(id => routing.labels[id]);
       }
     }
     need(routing.layer3 && Object.keys(DEFAULT_LAYER3).every(k => string(routing.layer3[k])), 'routing.layer3');
+    // stopText: unused since ontology 1.4.0 (K1+C3 routes to Grok); kept only so older ontology files still validate.
     need(string(routing.stopText) && string(routing.k5Banner), 'routing text');
     need(alerts && Object.keys(DEFAULT_ALERTS).every(k => Number.isFinite(alerts[k]))
       && Object.entries(alerts).every(([k, v]) => k === '$comment' || Number.isFinite(v)), 'alerts');
@@ -799,6 +803,7 @@ function loadOntology() {
       status: { state: 'loaded', version: o.version, error: null } };
   } catch (e) {
     return { thresholds: DEFAULT_ROUTE, work: DEFAULT_WORK, matrix: DEFAULT_MATRIX, layer3: DEFAULT_LAYER3,
+      // stopText: unused since ontology 1.4.0 (K1+C3 routes to Grok); kept only so older ontology files still validate.
       stopText: 'No new packets; report to Line', banner: 'Claude 5-hour >= 80%: finish the current check, update the handoff, pause Claude work until the window resets',
       alerts: DEFAULT_ALERTS, defectCategories: DEFAULT_DEFECT_CATEGORIES, metrics: { first_pass: DEFAULT_FIRST_PASS },
       status: { state: 'fallback', version: null, error: e.message } };
@@ -806,7 +811,7 @@ function loadOntology() {
 }
 const ONTOLOGY = loadOntology(), ontologyStatus = ONTOLOGY.status;
 const ROUTE = ONTOLOGY.thresholds, ROUTE_WORK = ONTOLOGY.work, ROUTE_MATRIX = ONTOLOGY.matrix;
-const STOP_TEXT = ONTOLOGY.stopText, K5_BANNER = ONTOLOGY.banner;
+const K5_BANNER = ONTOLOGY.banner;
 function routeAdvice(input = {}) {
   const num = v => (Number.isFinite(v) ? v : null);
   const cp = num(input.codexPace), cu = num(input.codexUsed), kp = num(input.claude7Pace), ku = num(input.claude7Used), k5 = num(input.claude5Used);
@@ -824,19 +829,16 @@ function routeAdvice(input = {}) {
   else if (ku !== null && ku >= ROUTE.claudeUsed) { claudeLevel = 'K1'; claudeWhy = `Claude K1: 7-day used ${u(ku)} >= ${ROUTE.claudeUsed}`; }
   else claudeWhy = `Claude K0: 7-day pace ${kp === null ? 'n/a' : p2(kp)}, used ${ku === null ? 'n/a' : u(ku)}`;
   const handoff = k5 !== null && k5 >= ROUTE.claude5Used;
-  const stop = codexLevel === 'C3' && claudeLevel === 'K1';
+  // Intent: no stop rule since K5f (Line 2026-11-18): C3 + K1 routes to Grok like C3 + K0; `stop` stays in the
+  // result as false for API compatibility. Status: complete. Next: none. Blockers: none. Confidence: tests/h8a-route.test.js.
+  const stop = false;
   const notes = [];
-  if (stop) notes.push(`STOP: Codex used >= ${ROUTE.codexUsed3}% while the Claude 7-day rule is active. ${STOP_TEXT}.`);
   if (handoff) notes.push(K5_BANNER);
   if (cu === null && cp === null) notes.push('no Codex data');
   if (cp === null && cu !== null) notes.push('Codex pace early or unknown: only its used % counts');
   if (kp === null && ku !== null) notes.push('Claude 7-day pace early or unknown: only its used % counts');
-  if (stop) {
-    const why = notes[0].replace(/\. No new packets.*$/, '');
-    return { codexLevel, claudeLevel, stop, handoff, notes, thresholds: ROUTE, rows: ROUTE_WORK.map(work => ({ work, model: STOP_TEXT, rule: why })) };
-  }
   const set = ROUTE_MATRIX[claudeLevel][codexLevel];
-  const ruleOf = i => (claudeLevel === 'K1' && i === 4 ? claudeWhy : claudeLevel === 'K1' && codexLevel === 'C2' && i < 2 ? `${claudeWhy} + ${codexWhy} (Claude rule wins) - Line 2026-11-15: Standard never deferred` : codexWhy);
+  const ruleOf = i => (claudeLevel === 'K1' && i === 4 && codexLevel !== 'C3' ? claudeWhy : claudeLevel === 'K1' && codexLevel === 'C2' && i < 2 ? `${claudeWhy} + ${codexWhy} (Claude rule wins) - Line 2026-11-15: Standard never deferred` : codexWhy);
   const rows = set.map((model, i) => ({ work: ROUTE_WORK[i], model, rule: ruleOf(i) }));
   rows.push({ work: ROUTE_WORK[5], model: ONTOLOGY.layer3[claudeLevel], rule: claudeWhy });
   rows.push({ work: ROUTE_WORK[6], model: ONTOLOGY.layer3.critical, rule: 'Critical: always Fable 5.2 (Line 2026-11-14)' });

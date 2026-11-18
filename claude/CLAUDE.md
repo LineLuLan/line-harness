@@ -32,6 +32,7 @@ Exit 76 from `codex-do.ps1` means the resume session already used more than 50M 
    - `-Resume <uuid|last>` only to continue the same packet (STOP blocker or review FAIL); at most 3 resumes, then a fresh session. New packets and reviewers always start fresh sessions.
    - Exit 73 = no sandbox available; exit 72 = the run hit a sandbox failure. Use `-NoSandboxFallback` for Critical work.
    - The worker writes only inside `-Dir`. Copies or installs outside it are the supervisor's step, after verification.
+   - `-Engine auto|codex|grok` (default auto: Grok when Codex weekly used >= 95%), `-SetEngine codex|grok|auto` (persistent manual switch), `-Undo <runId|last>` (reverts a Grok run byte-exact). Grok runs in an isolated worktree at effort xhigh with a "finish every criterion" rule (`--rules`); on Grok, `-Resume` continues the session on the engine that owns it, `-Sandbox read-only` brings nothing back, `-Attached` only waits (Grok always runs detached) and `-Account` is ignored. Exit 77 = conflict or bring-back error (nothing applied, worktree kept), 78 = setup error or a Grok `-Resume` whose earlier run is still running (a finished run's kept worktree is moved aside, never deleted).
    - Always pass the repo ROOT as `-Dir`, never a subfolder: files a sandbox run creates are owned by `CodexSandboxOffline` and only carry the capability SID of the `-Dir` used then, so a later run with another `-Dir` gets EPERM on them (2026-11-15, hub/tests/v9.test.js). One worker per repo at a time (the Dir lock); parallelize across repos only.
 2. Long or open-ended tasks: `Agent(subagent_type: "codex:codex-rescue")` in background mode; poll `/codex:status <jobId>`; cancel only when `.job.updatedAt` is frozen 5+ minutes. Write Windows paths with forward slashes in plugin prompts.
 
@@ -53,6 +54,7 @@ Shell: long or multi-line commands go through the PowerShell tool or a script fi
 | Standard-B (3+ files, long command chains, repo discovery, vague VALIDATE, prior Sol STOP/FAIL), Important, Critical | `gpt-6-astra` high |
 | Exploration | `gpt-6-luna` max first, then `gpt-6-sol` ultra for synthesis |
 | Fallback after a failed high attempt | `gpt-6-astra` xhigh, one attempt, then replan |
+| Codex used >= 95% (auto) | `grok-4.7-build-fast` xhigh via `codex-do.ps1` (auto; `-Engine grok` forces it; Critical stays Opus subagent) |
 
 Never start at xhigh. Write the tier into the packet header before dispatch. The `gpt-5.6-*` line is retired.
 
@@ -66,11 +68,11 @@ Pace = used % / % of the window elapsed. Check pace at session start and before 
 | Pace <= 1.0 and used < 70% | Normal routing table. |
 | Pace > 1.0 to 1.3, used 70-84% | Standard-B with <= 3 files and a runnable VALIDATE goes to `gpt-6-sol` high. No Luna exploration (Claude Explore subagent). Layer 2 = Fable subagent. |
 | Pace > 1.3 or used 85-94% | Codex for Important/Critical. Standard work goes to an Opus subagent with the same packet (if Claude is stressed too, see below). No resumes. |
-| Used >= 95% | No Codex. Opus subagent = worker, Fable subagent = layer 2, ledger `worker=opus`. |
+| Used >= 95% | No Codex. Grok worker via codex-do (auto at used >= 95%): Standard, Important and Exploration; Critical worker = Opus subagent; layer 2 = Grok review (codex-review.ps1 auto) + Fable subagent; ledger `worker=grok-4.7-build-fast`. |
 
-- Claude 7-day pace > 1.2 or used >= 70%: no Opus subagent workers; layer 2 = Astra; Fable only for Critical layer 3; supervisor edits <= 20 lines.
+- Claude 7-day pace > 1.2 or used >= 70%: no Opus subagent workers (except the Critical worker when Codex used >= 95%); layer 2 = Astra (Fable subagent when Codex used >= 95%); Fable otherwise only for Critical layer 3; supervisor edits <= 20 lines.
 - Both sides stressed (Claude rule above active and Codex not >= 95%): Standard-A and Standard-B go to `gpt-6-sol` high and are never deferred (Line, 2026-11-15).
-- Codex used >= 95% while the Claude rule is active: no new packets; report to Line. This is the only stop rule.
+- Codex used >= 95% while the Claude rule is active: Grok workers continue; layer 2 = Fable subagent; report to Line.
 - Claude 5-hour used >= 80%: finish the current check, update the handoff, pause Claude work until the window resets.
 - Codex desktop and CLI sessions count against the budget. One session over 50M tokens: stop and report to Line.
 <!-- ontology:quota:end -->

@@ -7,9 +7,11 @@ $bin = Split-Path -Parent $PSScriptRoot
 $fixture = Join-Path $PSScriptRoot ('codex-acc-fixture-' + [guid]::NewGuid().ToString('N'))
 $utf8 = New-Object Text.UTF8Encoding($false)
 $saved = @{}
-foreach ($name in @('CODEX_ACC_ROOT', 'CODEX_ACC_MAIN_HOME', 'CODEX_DO_BIN', 'CODEX_HOME', 'USERPROFILE', 'ACC_TEST_RECORD', 'ACC_TEST_AUTH', 'ACC_TEST_EXIT')) {
+foreach ($name in @('CODEX_DO_ENGINE', 'CODEX_DO_USAGE_CACHE_DIR', 'CODEX_DO_STATE_DIR', 'ULTRATHINK_ONTOLOGY', 'CODEX_ACC_ROOT', 'CODEX_ACC_MAIN_HOME', 'CODEX_DO_BIN', 'GROK_DO_BIN', 'CODEX_HOME', 'USERPROFILE', 'ACC_TEST_RECORD', 'ACC_TEST_AUTH', 'ACC_TEST_EXIT')) {
   $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
 }
+# K6a: a dispatch that auto-switches to grok must never reach the real grok.exe; restored with $saved.
+$env:GROK_DO_BIN = Join-Path $PSScriptRoot 'fixtures\fake-grok.cmd'
 function Assert-True($Condition, [string]$Label) {
   if (-not $Condition) { throw "SELFTEST FAIL: $Label" }
   Write-Host "SELFTEST PASS: $Label"
@@ -37,6 +39,8 @@ function Assert-Run([string]$Script, [string[]]$Arguments, [string]$ExpectedHome
 }
 try {
   New-Item -ItemType Directory -Path $fixture | Out-Null
+  # K5e (E13): pin the engine so the real Codex quota cache never routes this fixture to Grok; restored with $saved.
+  $env:CODEX_DO_ENGINE = 'codex'
   $env:CODEX_ACC_ROOT = Join-Path $fixture 'accounts'
   $env:CODEX_ACC_MAIN_HOME = Join-Path $fixture 'main'
   $env:USERPROFILE = Join-Path $fixture 'profile'
@@ -151,6 +155,32 @@ param($Script)
   # Intent: keep logged-out coverage behind valid packet lint. Status: fixed. Next: host suite. Blockers: none. Confidence: exit 5 assertion.
   $result = Invoke-TestScript 'codex-do.ps1' @('-Account', 'loggedout', '-Dir', $fixture, '-SpecFile', $dispatchPacket)
   Assert-True ($result.Code -eq 5) 'do logged-out account exits 5'
+
+  # Intent: K5e U1 - the dispatcher's real auto wiring (no CODEX_DO_ENGINE): the active account 'work' resolves first, then its own
+  # cache file (status line hash name) decides. Invoke-TestScript always adds -Attached; since K6a -Attached no longer keeps auto on codex, so at 96% the dispatch goes to grok (fake binary) and stops at the non-root fixture Dir (exit 78).
+  # Status: K5e touch-up. Next: host suite. Blockers: none. Confidence: fake codex records the call.
+  . (Join-Path $bin 'grok-engine-lib.ps1')
+  $autoCache = Join-Path $fixture 'usage-cache'
+  New-Item -ItemType Directory -Path $autoCache | Out-Null
+  $env:CODEX_DO_USAGE_CACHE_DIR = $autoCache
+  $env:CODEX_DO_STATE_DIR = Join-Path $fixture 'auto-state'
+  $env:ULTRATHINK_ONTOLOGY = Join-Path $bin '..\ontology\harness.ontology.json'
+  Remove-Item Env:CODEX_DO_ENGINE -ErrorAction SilentlyContinue
+  try {
+    $workCache = Get-CodexUsageCachePath -CacheDir $autoCache -AccountName 'work' -AccountHome (Resolve-CodexAccountHome -Name 'work')
+    $autoReset = [DateTimeOffset]::UtcNow.AddDays(2).ToUnixTimeSeconds()
+    foreach ($used in @(40, 96)) {
+      Write-TestFile $workCache ('{"weekly":{"left":' + (100 - $used) + ',"usedPercent":' + $used + ',"resetsAt":' + $autoReset + '}}')
+      Write-TestFile $env:ACC_TEST_RECORD 'not called'
+      $result = Invoke-TestScript 'codex-do.ps1' @('-Dir', $fixture, '-SpecFile', $dispatchPacket)
+      $called = [IO.File]::ReadAllText($env:ACC_TEST_RECORD).Trim() -ceq $workHome
+      if ($used -eq 40) {
+        Assert-True ($result.Code -eq 0 -and $called -and $result.Text -notmatch 'codex-do: engine' -and $result.Text -notmatch 'needs Codex') 'U1 auto, Codex 40% used: fake codex called, no engine line'
+      } else {
+        Assert-True ($result.Code -eq 78 -and -not $called -and $result.Text.Contains('codex-do: engine grok (auto: Codex weekly 96% used)') -and $result.Text.Contains('codex-do: -Attached is the default on grok (detached + wait)')) 'K6a U1 auto, Codex 96% used + -Attached: grok, not Codex (fake grok; non-root fixture Dir exits 78); fake codex not called'
+      }
+    }
+  } finally { $env:CODEX_DO_ENGINE = 'codex' }
 
   # Reuse the scratch repository's baseline locally, without creating a commit.
   $repo = Join-Path $fixture 'repo'

@@ -1,7 +1,7 @@
 {
   "$comment": "Line Harness ontology: the single source for routing, quota, review and permission rules. Consumers: Line Hub (routeAdvice, alert RULES), CLAUDE.md generated blocks, ontology-check sensor. Edit here, then run ontology-check --write. Owner: Line. Values copied from the live system on 2026-11-15.",
-  "version": "1.3.0",
-  "updated": "2026-11-15",
+  "version": "1.4.0",
+  "updated": "2026-11-18",
   "defectCategories": [
     {
       "id": "contradiction",
@@ -619,7 +619,7 @@
       {
         "id": "C3",
         "test": "used >= codexUsed3",
-        "route": "No Codex. Opus subagent = worker, Fable subagent = layer 2, ledger `worker=opus`.",
+        "route": "No Codex. Grok worker via codex-do (auto at used >= {codexUsed3}%): Standard, Important and Exploration; Critical worker = Opus subagent; layer 2 = Grok review (codex-review.ps1 auto) + Fable subagent; ledger `worker=grok-4.7-build-fast`.",
         "label": "Used >= {codexUsed3}%"
       }
     ],
@@ -627,8 +627,8 @@
       {
         "id": "K1",
         "test": "Claude 7-day pace > claudePace or used >= claudeUsed",
-        "text": "No Opus subagent workers; layer 2 = Astra; Fable only for Critical layer 3; supervisor edits <= 20 lines.",
-        "bullet": "Claude 7-day pace > {claudePace} or used >= {claudeUsed}%: no Opus subagent workers; layer 2 = Astra; Fable only for Critical layer 3; supervisor edits <= 20 lines."
+        "text": "No Opus subagent workers (except the Critical worker when Codex used >= codexUsed3); layer 2 = Astra (Fable subagent when Codex used >= codexUsed3); Fable otherwise only for Critical layer 3; supervisor edits <= 20 lines.",
+        "bullet": "Claude 7-day pace > {claudePace} or used >= {claudeUsed}%: no Opus subagent workers (except the Critical worker when Codex used >= {codexUsed3}%); layer 2 = Astra (Fable subagent when Codex used >= {codexUsed3}%); Fable otherwise only for Critical layer 3; supervisor edits <= 20 lines."
       },
       {
         "id": "BOTH",
@@ -640,9 +640,9 @@
       {
         "id": "STOP",
         "test": "C3 and K1",
-        "text": "No new packets; report to Line. This is the only stop rule.",
-        "source": "Line 2026-11-15",
-        "bullet": "Codex used >= {codexUsed3}% while the Claude rule is active: no new packets; report to Line. This is the only stop rule."
+        "text": "Grok workers continue; layer 2 = Fable subagent; report to Line.",
+        "source": "Line 2026-11-18",
+        "bullet": "Codex used >= {codexUsed3}% while the Claude rule is active: Grok workers continue; layer 2 = Fable subagent; report to Line."
       },
       {
         "id": "K5",
@@ -678,7 +678,9 @@
       "opus": "Opus subagent",
       "explore": "Claude Explore subagent",
       "fable": "Fable subagent",
-      "l2astra": "gpt-6-astra"
+      "l2astra": "gpt-6-astra",
+      "grok": "grok-4.7-build-fast xhigh (codex-do auto)",
+      "grokImp": "grok-4.7-build-fast xhigh; Critical: Opus subagent"
     },
     "matrix": {
       "K0": {
@@ -704,10 +706,10 @@
           "fable"
         ],
         "C3": [
-          "opus",
-          "opus",
-          "opus",
-          "explore",
+          "grok",
+          "grok",
+          "grokImp",
+          "grok",
           "fable"
         ]
       },
@@ -733,7 +735,13 @@
           "explore",
           "l2astra"
         ],
-        "C3": "STOP"
+        "C3": [
+          "grok",
+          "grok",
+          "grokImp",
+          "grok",
+          "fable"
+        ]
       }
     },
     "layer3": {
@@ -1064,7 +1072,7 @@
     },
     {
       "pattern": "Both sides used > ?85",
-      "why": "only stop rule is C3+K1 (STOP)"
+      "why": "both-sides-85 stop removed 2026-11-15; Codex C3 routes to Grok workers since 2026-11-18 (no quota stop rule for new packets)"
     }
   ],
   "reviewTable": [

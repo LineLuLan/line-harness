@@ -38,8 +38,21 @@
 .PARAMETER Dir
   Working root Codex operates in. Defaults to the current directory.
 
+.PARAMETER Engine
+  auto (default), codex, or grok (detached worktree isolation and byte-exact bring-back; undo with -Undo).
+  Precedence: -Engine codex|grok > env CODEX_DO_ENGINE (codex|grok|auto) > <stateDir>\engine.txt > auto.
+  Auto picks grok when the Codex weekly used % (status line cache, CODEX_DO_USAGE_CACHE_DIR overrides
+  <TEMP>\ultrathink-status) is >= the ontology's codexUsed3 (fallback 95) with fresh data; Critical packets
+  never auto-switch. K6a: -Resume continues on the engine that owns the session (run.json of the newest run for -Dir, or the run whose
+  session.txt equals the UUID); -Attached, -Account (ignored) and -Sandbox read-only work on grok.
+
+.PARAMETER SetEngine
+  codex, grok or auto: write <stateDir>\engine.txt and print the effective engine; show: print the mode,
+  its source and the Codex used %, change nothing. Takes no other option.
+
 .PARAMETER Sandbox
   read-only (analysis), workspace-write (default, edits files), or danger-full-access.
+  On grok: read-only = --sandbox read-only plus read/search tools only, and nothing is brought back; the others use grok's workspace profile.
 
 .PARAMETER NoSandboxFallback
   Critical-tier work: require elevated Windows sandbox. CODEX_DO_NO_FALLBACK=1
@@ -74,6 +87,12 @@
   List recent runs with state, elapsed time, and last-output age; starts no worker.
   -Status takes no -Dir or -Account.
 
+.PARAMETER Undo
+  Reverse an applied Grok run: a run ID or 'last' (newest applied Grok run; a bound -Dir
+  limits 'last' to that Dir). Restores each file only if it still holds the run's bytes,
+  takes the Dir lock, starts no worker. Exit 0 all restored or already undone, 79 some
+  files skipped, 2 no undo bundle, 3 Dir busy, 64 usage error or unknown run.
+
 .PARAMETER Hours
   Lookback for -Status in hours (default 24).
 
@@ -93,6 +112,10 @@
 [CmdletBinding()]
 param(
   [string]$Dir = (Get-Location).Path,
+  # Intent: K5e - engine by precedence (flag > CODEX_DO_ENGINE > engine.txt > auto); auto keeps Codex while it has quota. Status: auto default. Next: host validation. Blockers: none. Confidence: grok-engine tests.
+  [ValidateSet('auto','codex','grok')][string]$Engine = 'auto',
+  # Intent: K5e - Line swaps the engine any time; 'show' only reads (E4). Status: maintenance path. Next: host -SetEngine show. Blockers: none. Confidence: grok-engine tests.
+  [ValidateSet('codex','grok','auto','show')][string]$SetEngine,
   [ValidateSet('read-only','workspace-write','danger-full-access')]
   [string]$Sandbox = 'workspace-write',
   [switch]$NoSandboxFallback,
@@ -105,6 +128,8 @@ param(
   [string]$Attach = '',
   [string]$Cancel = '',
   [switch]$Status,
+  # Intent: K5d - reverse an applied Grok run from its undo bundle. Status: maintenance path like -Cancel. Next: host check. Blockers: none. Confidence: grok-engine tests.
+  [string]$Undo = '',
   [ValidateRange(1, 2147483647)][int]$Hours = 24,
   [switch]$AllowSubAgents,
   [switch]$NoSubAgents,
@@ -118,13 +143,24 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# Intent: reject incompatible Grok flags before lint or account discovery. K6a: -Attached, -Resume, -Account and -Sandbox work on grok now (handled after the engine decision).
+# Status: K6a. Next: host validation. Blockers: none. Confidence: early-exit tests.
+if ($Engine -eq 'grok' -and -not ($Status -or $Attach -or $Cancel -or $Undo)) {
+  # -Fast is accepted and ignored for Grok: the default model is already build-fast (K5c).
+  if ($PSBoundParameters.ContainsKey('Model') -and $Model -notlike 'grok*') { Write-Host 'codex-do: -Engine grok requires a grok model'; exit 2 }
+  if ($Effort -eq 'ultra') { Write-Host 'codex-do: -Engine grok does not support -Effort ultra'; exit 2 }
+}
 . (Join-Path $PSScriptRoot 'packet-lint.ps1')
 . (Join-Path $PSScriptRoot 'ram-preflight.ps1')
+# Intent: K5e - the engine decision lives in the lib, so it loads for every path (it has no param block). Status: unconditional. Next: none. Blockers: none. Confidence: resume baseline copies it.
+. (Join-Path $PSScriptRoot 'grok-engine-lib.ps1')
+$stateDir = if ($env:CODEX_DO_STATE_DIR) { [IO.Path]::GetFullPath($env:CODEX_DO_STATE_DIR) } else { Join-Path $env:USERPROFILE '.claude\state' }
+$ontologyPath = if ($env:ULTRATHINK_ONTOLOGY) { $env:ULTRATHINK_ONTOLOGY } else { Join-Path $PSScriptRoot '..\ontology\harness.ontology.json' }
 
 function Get-DispatchPacket {
-  param([string]$Text, [switch]$Status, [switch]$Attach, [switch]$Cancel, [switch]$Resume, [switch]$AllowLarge, [switch]$AllowSubAgents)
+  param([string]$Text, [switch]$Status, [switch]$Attach, [switch]$Cancel, [switch]$Resume, [switch]$AllowLarge, [switch]$AllowSubAgents, [switch]$Undo)
   $result = [pscustomobject]@{ ExitCode=0; Text=$Text; Errors=@(); Warnings=@() }
-  if ($Status -or $Attach -or $Cancel) { return $result }
+  if ($Status -or $Attach -or $Cancel -or $Undo) { return $result }
   if (-not $Resume) {
     $lint = Test-Packet -Text $Text -AllowLarge:$AllowLarge
     $result.Errors = $lint.errors; $result.Warnings = $lint.warnings
@@ -136,6 +172,36 @@ function Get-DispatchPacket {
   return $result
 }
 
+# Intent: K5e criterion 4 - -SetEngine writes engine.txt atomically or (show) only reads; it needs no packet, no lint and no worker, and reports the effective engine for a non-Critical packet with the active account's Codex used %. Status: maintenance path, exits before lint (E11). Next: host -SetEngine show. Blockers: none. Confidence: grok-engine tests.
+if ($PSBoundParameters.ContainsKey('SetEngine')) {
+  if (@($PSBoundParameters.Keys | Where-Object { $_ -notin @('SetEngine', 'Verbose', 'Debug', 'ErrorAction', 'WarningAction', 'InformationAction', 'ErrorVariable', 'WarningVariable', 'InformationVariable', 'OutVariable', 'OutBuffer', 'PipelineVariable') }).Count -gt 0) {
+    Write-Host 'codex-do: usage error: -SetEngine codex|grok|auto|show is mutually exclusive with dispatch, -Status, -Attach, -Cancel, and -Undo.'
+    exit 64
+  }
+  if ($SetEngine -ne 'show') {
+    try { $enginePath = Write-DispatchEngineFile -StateDir $stateDir -Value $SetEngine }
+    catch { Write-Host ('codex-do: cannot write engine.txt: ' + ($_.Exception.Message -replace '[\r\n]+', ' ')); exit 1 }
+    Write-Host "codex-do: engine mode saved: $SetEngine ($enginePath)"
+  }
+  . (Join-Path $PSScriptRoot 'codex-acc-lib.ps1')
+  $engineCache = $null
+  try {
+    $engineAccount = Get-CodexActiveAccount
+    $engineHome = Resolve-CodexAccountHome -Name $engineAccount
+    $engineCache = Read-CodexUsageCache -Path (Get-CodexUsageCachePath -CacheDir (Get-CodexUsageCacheDir) -AccountName $engineAccount -AccountHome $engineHome)
+  } catch { $engineCache = $null } # E6: an account error only makes the used % unknown.
+  $engineUsed = Get-CodexWeeklyUsed $engineCache
+  $engineFile = Read-DispatchEngineFile -StateDir $stateDir
+  $engineMode = Get-DispatchEngineMode -EnvValue $env:CODEX_DO_ENGINE -FileValue $engineFile
+  $engineThreshold = Get-DispatchEngineThreshold -OntologyPath $ontologyPath
+  $engineView = Resolve-DispatchEngine -EnvValue $env:CODEX_DO_ENGINE -FileValue $engineFile -Cache $engineCache -Threshold $engineThreshold
+  foreach ($line in @($engineView.messages)) { Write-Host $line }
+  Write-Host ('codex-do: engine mode: {0} ({1})' -f $engineMode.mode, $engineMode.origin)
+  Write-Host ('codex-do: Codex weekly used: {0}' -f $(if ($null -ne $engineUsed) { Format-CodexUsedPercent -Used $engineUsed -Threshold $engineThreshold } else { 'unknown' }))
+  Write-Host ('codex-do: effective engine for a non-Critical packet: {0} ({1}: {2})' -f $engineView.engine, $engineView.source, $engineView.reason)
+  exit 0
+}
+
 if ($Status -and @($PSBoundParameters.Keys | Where-Object { $_ -notin @('Status', 'Hours', 'Verbose', 'Debug', 'ErrorAction', 'WarningAction', 'InformationAction', 'ErrorVariable', 'WarningVariable', 'InformationVariable', 'OutVariable', 'OutBuffer', 'PipelineVariable') }).Count -gt 0) {
   Write-Host 'codex-do: usage error: -Status is mutually exclusive with dispatch, -Attach, and -Cancel.'
   exit 64
@@ -144,6 +210,11 @@ if (($Attach -and $Cancel) -or (($Attach -or $Cancel) -and
     ($PSBoundParameters.ContainsKey('Prompt') -or $PSBoundParameters.ContainsKey('SpecFile') -or
      $PSBoundParameters.ContainsKey('Resume') -or $Attached)) -or ($AllowSubAgents -and $NoSubAgents)) {
   Write-Host 'codex-do: usage error: dispatch, -Attach, and -Cancel are mutually exclusive; choose only one sub-agent policy.'
+  exit 64
+}
+# Intent: -Undo takes only a run and an optional -Dir filter (A1, A6). Status: usage gate before lint. Next: none. Blockers: none. Confidence: exclusivity tests.
+if ($PSBoundParameters.ContainsKey('Undo') -and (-not $Undo -or @($PSBoundParameters.Keys | Where-Object { $_ -notin @('Undo', 'Dir', 'Verbose', 'Debug', 'ErrorAction', 'WarningAction', 'InformationAction', 'ErrorVariable', 'WarningVariable', 'InformationVariable', 'OutVariable', 'OutBuffer', 'PipelineVariable') }).Count -gt 0)) {
+  Write-Host 'codex-do: usage error: -Undo <runId|last> [-Dir <repo>] is mutually exclusive with dispatch, -Status, -Attach, and -Cancel.'
   exit 64
 }
 if ($Resume -and $Resume -cne 'last' -and $Resume -notmatch '\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z') {
@@ -163,7 +234,7 @@ if ($SpecFile -and -not ($Status -or $Attach -or $Cancel)) {
   try { $specSha256 = -join ($specHasher.ComputeHash($specBytes) | ForEach-Object { $_.ToString('x2') }) } finally { $specHasher.Dispose() }
   $promptText = [IO.File]::ReadAllText($specFullPath, [Text.Encoding]::UTF8)
 }
-$packet = Get-DispatchPacket -Text $promptText -Status:$Status -Attach:([bool]$Attach) -Cancel:([bool]$Cancel) -Resume:([bool]$Resume) -AllowLarge:$AllowLarge -AllowSubAgents:$AllowSubAgents
+$packet = Get-DispatchPacket -Text $promptText -Status:$Status -Attach:([bool]$Attach) -Cancel:([bool]$Cancel) -Resume:([bool]$Resume) -AllowLarge:$AllowLarge -AllowSubAgents:$AllowSubAgents -Undo:([bool]$Undo)
 foreach ($message in $packet.Warnings) { Write-Warning "codex-do: $message" }
 if ($packet.ExitCode) {
   foreach ($message in $packet.Errors) { Write-Host "codex-do: $message" }
@@ -172,7 +243,6 @@ if ($packet.ExitCode) {
 $promptText = $packet.Text
 . (Join-Path $PSScriptRoot 'codex-acc-lib.ps1')
 . (Join-Path $PSScriptRoot 'codex-sandbox-lib.ps1')
-$stateDir = if ($env:CODEX_DO_STATE_DIR) { [IO.Path]::GetFullPath($env:CODEX_DO_STATE_DIR) } else { Join-Path $env:USERPROFILE '.claude\state' }
 $runsDir = Join-Path $stateDir 'runs'
 $runId = $null
 $runFolder = $null
@@ -199,9 +269,70 @@ if ($Attach -or $Cancel) {
     $Dir = [string]$run.dir
     $Account = [string]$run.account
     $Resume = [string]$run.resume
+    # Intent: reconnect using durable engine identity. Status: legacy means Codex. Next: host attach/cancel. Blockers: none. Confidence: metadata authority.
+    $Engine = if ($run.engine -eq 'grok') { 'grok' } else { 'codex' }
   } catch { Write-Host "codex-do: cannot load run ${runId}: $($_.Exception.Message)"; exit 64 }
 }
+# Intent: resolve the -Undo run and take Dir from its undo bundle (A1, A6, A7); $runId stays null so the Dir lock carries no runId. Status: K5d. Next: host check. Blockers: none. Confidence: dispatcher tests.
+$undoRunId = $null
+if ($Undo) {
+  $undoRunId = $Undo
+  if ($Undo -ceq 'last') {
+    $undoFilter = if ($PSBoundParameters.ContainsKey('Dir')) { [IO.Path]::GetFullPath($Dir) } else { '' }
+    $undoRunId = Get-GrokUndoCandidate -RunsDir $runsDir -Dir $undoFilter
+    if (-not $undoRunId) { Write-Host 'codex-do: no applied Grok run to undo'; exit 2 }
+  }
+  if ($undoRunId -cnotmatch '\A\d{8}-\d{6}-[0-9a-f]{4}\z') { Write-Host 'codex-do: expected an existing run ID or last'; exit 64 }
+  $runFolder = Join-Path $runsDir $undoRunId
+  if (-not (Test-Path -LiteralPath (Join-Path $runFolder 'run.json'))) { Write-Host "codex-do: unknown run $undoRunId"; exit 64 }
+  try { $run = Read-CodexRunMetadata -Folder $runFolder } catch { Write-Host "codex-do: cannot load run ${undoRunId}: $($_.Exception.Message)"; exit 64 }
+  if ($run.engine -ne 'grok' -or -not (Test-Path -LiteralPath (Join-Path $runFolder 'undo\undo.json'))) { Write-Host "codex-do: no undo bundle for run $undoRunId"; exit 2 }
+  try {
+    $Dir = [string]([IO.File]::ReadAllText((Join-Path $runFolder 'undo\undo.json')) | ConvertFrom-Json).dir
+    if ([string]::IsNullOrWhiteSpace($Dir)) { throw 'undo bundle has no dir' }
+  } catch { Write-Host "codex-do: cannot read the undo bundle of ${undoRunId}: $($_.Exception.Message)"; exit 2 }
+  $Engine = 'grok'
+}
 $accountHome = $null
+# Intent: K5e criterion 3 / E6 - a dispatch picks its engine after lint, before the account and the grok-only option fallback: phase (a) flag/env/file;
+# a manual grok skips account resolution; phase (b) resolves the account as before (exit 5) and applies the auto rule to that account's cache.
+# -Status/-Attach/-Cancel/-Undo never read the cache: their engine comes from run.json (or is codex for -Status).
+# Status: K5e. Next: host check. Blockers: none. Confidence: function-level tests (E9) and pre-launch dispatcher tests.
+$engineDispatch = -not ($Status -or $Attach -or $Cancel -or $Undo)
+$engineSource = ''
+$engineDecision = $null
+if ($Status) { $Engine = 'codex' }
+$resumeOwner = $null
+if ($engineDispatch) {
+  # Intent: K6a G1 - resolve who owns the -Resume session once, before the engine decision and before Codex account resolution. Status: K6a. Next: host -Resume run. Blockers: none. Confidence: owner fixtures.
+  $resumeOwnerName = ''
+  if ($Resume) {
+    $resumeOwner = Get-GrokResumeOwner -RunsDir $runsDir -Dir $Dir -Resume $Resume
+    $resumeOwnerName = $resumeOwner.owner
+  }
+  $engineArguments = @{
+    Explicit = $(if ($PSBoundParameters.ContainsKey('Engine')) { $Engine } else { '' })
+    EnvValue = $env:CODEX_DO_ENGINE
+    FileValue = (Read-DispatchEngineFile -StateDir $stateDir)
+    Tier = [string](Get-PacketSections -Text $promptText).Tier
+    Threshold = (Get-DispatchEngineThreshold -OntologyPath $ontologyPath)
+    ResumeOwner = $resumeOwnerName
+    # V5: the engine line names the owner run, e.g. 'engine grok (file: -Resume continues grok session <id> from run <runId> <start>)'.
+    ResumeLabel = $(if ($resumeOwnerName -eq 'grok') { '{0} from run {1} {2}' -f $resumeOwner.session, $resumeOwner.runId, [string]$resumeOwner.run.startedUtc } else { '' })
+  }
+  $engineMode = Get-DispatchEngineMode -Explicit $engineArguments.Explicit -EnvValue $engineArguments.EnvValue -FileValue $engineArguments.FileValue
+  if ($engineMode.mode -eq 'grok' -or $resumeOwnerName -eq 'grok' -or ($Resume -and $engineMode.source -eq 'flag')) {
+    $engineDecision = Resolve-DispatchEngine @engineArguments -Cache $null
+    if ($engineDecision.exitCode) {
+      foreach ($line in @($engineDecision.messages)) { Write-Host $line }
+      exit $engineDecision.exitCode
+    }
+  }
+  # Phase (b) resolves the Codex account unless a manual grok stands.
+  $Engine = if ($null -ne $engineDecision) { $engineDecision.engine } else { 'codex' }
+}
+# Intent: Grok dispatch and reconnection never resolve Codex accounts. Status: engine branch. Next: host check. Blockers: none. Confidence: no account dependency in Grok path.
+if ($Engine -eq 'codex') {
 try {
   $accountName = if ($Account) { $Account } else { Get-CodexActiveAccount }
   $accountHome = Resolve-CodexAccountHome -Name $accountName
@@ -217,15 +348,84 @@ try {
   # Reconnection and cancellation remain available after an account home is removed.
   $accountHome = $null
 }
+} else { $accountName = ''; $accountHome = '' }
+if ($engineDispatch) {
+  if ($null -eq $engineDecision) {
+    $usageCache = $null
+    if ($engineMode.mode -eq 'auto') {
+      $usageCache = Read-CodexUsageCache -Path (Get-CodexUsageCachePath -CacheDir (Get-CodexUsageCacheDir) -AccountName $accountName -AccountHome $accountHome)
+    }
+    $engineDecision = Resolve-DispatchEngine @engineArguments -Cache $usageCache
+  }
+  foreach ($line in @($engineDecision.messages)) { Write-Host $line }
+  if ($engineDecision.exitCode) { exit $engineDecision.exitCode }
+  $Engine = $engineDecision.engine
+  # U5: run.json engineSource = flag|env|file|auto, or '<source>-fallback' (env-fallback, file-fallback, auto-fallback) when
+  # a codex-owned or unknown -Resume turned a grok decision into codex (K6a). A grok decision never falls back, so Get-GrokOptionPlan still sees the plain source.
+  $engineSource = $engineDecision.recordSource
+  if ($Engine -eq 'grok') {
+    Write-Host (Format-DispatchEngineLine $engineDecision)
+    $accountName = ''; $accountHome = ''
+    # Intent: K6a G7/G12/criterion 4 - -Attached is a no-op on grok (it always runs detached and this observer waits); -Account does not apply. Status: K6a. Next: none. Blockers: none. Confidence: e2e attached scenario.
+    if ($Attached) { Write-Host 'codex-do: -Attached is the default on grok (detached + wait)'; $Attached = $false }
+    if ($PSBoundParameters.ContainsKey('Account')) { Write-Host 'codex-do: -Account ignored on grok' }
+  }
+}
+# Intent: K6a criterion 3 / G8 - -Sandbox read-only = a read-only grok run (no bring-back); workspace-write and danger-full-access run grok's workspace profile.
+# A grok resume keeps the owning run's profile when -Sandbox is omitted and exits 2 when -Sandbox names another one (grok refuses a profile change on resume, probe 6).
+# Status: K6a. Next: none. Blockers: none. Confidence: dispatcher tests.
+$grokReadOnly = $false
+$grokResumeSession = ''
+$grokResumeWorktree = ''
+if ($Engine -eq 'grok' -and $engineDispatch) {
+  if ($Sandbox -eq 'danger-full-access') { Write-Host 'codex-do: grok runs -Sandbox danger-full-access as its workspace profile' }
+  $grokReadOnly = $Sandbox -eq 'read-only'
+  if ($Resume) {
+    $ownerRun = $resumeOwner.run
+    # V3: a UUID resume must name the Dir its owner run worked on ('last' is already looked up by Dir).
+    if ($Resume -cne 'last' -and -not [string]::Equals([IO.Path]::GetFullPath([string]$ownerRun.dir).TrimEnd('\','/'), [IO.Path]::GetFullPath($Dir).TrimEnd('\','/'), [StringComparison]::OrdinalIgnoreCase)) {
+      Write-Host "codex-do: grok session $($resumeOwner.session) belongs to $($ownerRun.dir), not -Dir $([IO.Path]::GetFullPath($Dir))"
+      exit 2
+    }
+    $ownerReadOnly = [string]$ownerRun.sandboxMode -eq 'read-only'
+    if (-not $PSBoundParameters.ContainsKey('Sandbox')) { $grokReadOnly = $ownerReadOnly }
+    elseif ($grokReadOnly -ne $ownerReadOnly) {
+      $ownerProfile = if ($ownerReadOnly) { 'read-only' } else { 'workspace' }
+      Write-Host "codex-do: grok session $($resumeOwner.session) was started with sandbox $ownerProfile; -Sandbox $Sandbox cannot resume it"
+      exit 2
+    }
+    # G5: the grok session id must be a UUID like Codex's (probe 1: grok 1.0.88 prints UUIDv7 ids).
+    if ($resumeOwner.session -notmatch '\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z') {
+      Write-Host "codex-do: grok run $($resumeOwner.runId) has no session id to resume"
+      exit 2
+    }
+    # G2: grok reopens a session only in the folder it started in (probe 3: a new --cwd fails, "This session's folder no longer exists, so nothing ran"),
+    # so the new snapshot goes to the prior run's worktree path (probe 4: resumed there with the same session id). That path must be free.
+    $grokResumeWorktree = [string]$ownerRun.worktreeDir
+    if (-not $grokResumeWorktree) { Write-Host "codex-do: grok run $($resumeOwner.runId) records no worktree path; cannot resume"; exit 78 }
+    # V2: a worktree still at that path is handled under the Dir lock in the launch block (finished run: moved aside; running run: exit 78).
+    $grokResumeSession = $resumeOwner.session
+    # G9: the 50M rule for grok sums the session's end-event tokens over its runs; no 3-resume counter (prose rule).
+    $grokTokens = Get-GrokSessionTokens -RunsDir $runsDir -Session $grokResumeSession
+    if ($null -ne $grokTokens -and $grokTokens -gt 50000000) {
+      $millions = ($grokTokens / 1000000.0).ToString('0.######', [Globalization.CultureInfo]::InvariantCulture)
+      Write-Host "codex-do: session $grokResumeSession already used $($millions)M tokens (> 50M rule) - start a fresh session and report to Line"
+      exit 76
+    }
+    if ($null -eq $grokTokens) { Write-Host "codex-do: warning: token usage unavailable for session $grokResumeSession; continuing resume" }
+    $Resume = $grokResumeSession
+  }
+}
 if ($Attached) { $promptText = $promptText.Trim() }
-if (-not ($Status -or $Attach -or $Cancel) -and [string]::IsNullOrWhiteSpace($promptText)) {
+if (-not ($Status -or $Attach -or $Cancel -or $Undo) -and [string]::IsNullOrWhiteSpace($promptText)) {
   throw "No task prompt provided. Usage: codex-do.ps1 [-Dir <path>] [-Sandbox <mode>] [-Fast] [-SpecFile <f>] [-OutFile <f>] '<task>'"
 }
 
 # Intent: preserve Line's model choice across resumes instead of silently using dispatch defaults.
 # Status: newest matching durable run supplies only omitted flags. Next: supervisor WMI validation.
 # Blockers: none for Attached fixtures. Confidence: UUID, last, defaults and override regressions.
-if ($Resume -and -not ($Attach -or $Cancel)) {
+# K6a: a grok resume was prepared above (owner, worktree, 50M cap); this block is the unchanged Codex path.
+if ($Resume -and $Engine -ne 'grok' -and -not ($Attach -or $Cancel)) {
   $priorRun = $null
   $priorRunId = $null
   $resumeDir = [IO.Path]::GetFullPath($Dir).TrimEnd([char[]]@('\', '/'))
@@ -234,6 +434,8 @@ if ($Resume -and -not ($Attach -or $Cancel)) {
       Where-Object { $_.Name -cmatch '\A\d{8}-\d{6}-[0-9a-f]{4}\z' } | Sort-Object CreationTimeUtc, Name -Descending)) {
     try {
       $candidate = Read-CodexRunMetadata -Folder $folder.FullName
+      # K6a G1: Codex model/effort inheritance never takes a grok-owned run.
+      if ($candidate.engine -eq 'grok') { continue }
       # A resolved 'last' UUID must belong to the account being resumed.
       if ($candidate.account -and $candidate.account -ine $accountName) { continue }
       if (-not $candidate.model -or $candidate.effort -notin @('low', 'medium', 'high', 'xhigh', 'max', 'ultra')) { continue }
@@ -301,6 +503,16 @@ if ($Resume -and -not ($Attach -or $Cancel)) {
 }
 $codexModel = $Model
 $codexEffort = if ($Effort) { $Effort } elseif ($Fast) { 'medium' } else { 'high' }
+# Intent: Grok model/effort/speed flags come from one pure lib function; run.json records them. Status: K5c. Next: host timing check. Blockers: none. Confidence: grok-engine tests.
+$grokPlan = $null
+if ($Engine -eq 'grok' -and -not ($Status -or $Attach -or $Cancel -or $Undo)) {
+  # Intent: K5e E1 - a grok chosen by env, file or auto ignores a non-grok -Model and -Effort ultra with one line. Status: K5e. Next: none. Blockers: none. Confidence: Get-GrokOptionPlan tests.
+  $grokOptions = Get-GrokOptionPlan -Source $engineSource -Model $Model -ModelGiven:($PSBoundParameters.ContainsKey('Model')) -Effort $Effort -EffortGiven:($PSBoundParameters.ContainsKey('Effort'))
+  if ($grokOptions.line) { Write-Host $grokOptions.line }
+  $grokPlan = Get-GrokLaunchPlan -Tier ([string](Get-PacketSections -Text $promptText).Tier) -Model $Model -Effort $Effort -Fast:$Fast `
+    -ModelGiven:($grokOptions.modelGiven) -EffortGiven:($grokOptions.effortGiven) -ReadOnly:$grokReadOnly -ResumeSession $grokResumeSession
+  $codexModel = $grokPlan.model; $codexEffort = $grokPlan.effort
+}
 if (-not $Attached) { $Dir = [IO.Path]::GetFullPath($Dir) }
 if (-not $Attached -and $OutFile -and -not [IO.Path]::IsPathRooted($OutFile)) {
   $OutFile = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutFile)
@@ -327,7 +539,13 @@ if ($Resume) {
 }
 
 # Test hook, also useful if the npm shim moves.
-if (-not [string]::IsNullOrEmpty($env:CODEX_DO_BIN)) {
+if ($Engine -eq 'grok') {
+  # Intent: resolve Grok without Codex binaries or account state. Status: override supported. Next: host smoke test. Blockers: none. Confidence: explicit missing-binary exit.
+  $codexBin = if ($env:GROK_DO_BIN) { $env:GROK_DO_BIN } else { Join-Path $env:USERPROFILE '.grok\bin\grok.exe' }
+  if (-not ($Status -or $Attach -or $Cancel -or $Undo) -and -not (Test-Path -LiteralPath $codexBin -PathType Leaf)) {
+    Write-Host 'codex-do: grok CLI not found'; exit 73
+  }
+} elseif (-not [string]::IsNullOrEmpty($env:CODEX_DO_BIN)) {
   $codexBin = $env:CODEX_DO_BIN
 } else {
   # Prefer the npm-global codex (0.146+) over the desktop-managed standalone that wins PATH
@@ -336,7 +554,7 @@ if (-not [string]::IsNullOrEmpty($env:CODEX_DO_BIN)) {
   if (-not (Test-Path $codexBin)) { $codexBin = 'codex' }
 }
 
-if (-not ($Status -or $Attached -or $Attach -or $Cancel)) {
+if (-not ($Status -or $Attached -or $Attach -or $Cancel -or $Undo)) {
   foreach ($value in @(
     @{ Name = '-Dir'; Value = $Dir }, @{ Name = '-OutFile'; Value = $OutFile },
     @{ Name = '-Model'; Value = $Model }, @{ Name = 'codexBin'; Value = $codexBin },
@@ -636,7 +854,8 @@ function Wait-DetachedRun {
         Write-Host "codex-do: invalid exit.txt in $Folder"
         return 71
       }
-      $failure = Get-CodexSandboxFailure -Path $outputPath
+      # Intent: Grok completion uses its wrapper's exit code. Status: no Codex log interpretation. Next: host test. Blockers: none. Confidence: engine from metadata.
+      $failure = if ($Run.engine -eq 'grok') { $null } else { Get-CodexSandboxFailure -Path $outputPath }
       if ($failure) {
         Write-Host "WORKER SANDBOX FAILURE: $failure"
         try { Update-CodexRunMetadata -Folder $Folder -Fields @{ sandboxFailure = $true } }
@@ -677,6 +896,72 @@ function Remove-OwnedDispatchLock {
   } catch {} finally {
     if ($null -ne $reader) { $reader.Dispose() }
     elseif ($null -ne $stream) { $stream.Dispose() }
+  }
+}
+
+# Intent: one Dir-lock acquisition shared by dispatch and -Undo (K5d A1: extracted, no behaviour change). Status: stale-lock rules unchanged. Next: none. Blockers: none. Confidence: detach selftest + grok-engine lock test.
+function Enter-DispatchDirLock {
+  param([string]$Path, [string]$Directory, [string]$StartedUtc)
+
+  $lockRetries = 0
+  while ($true) {
+    try {
+      Write-DispatchLockFile -Path $Path -Directory $Directory -StartedUtc $StartedUtc -ChildPid $null -CreateNew
+      return
+    } catch [System.IO.IOException], [UnauthorizedAccessException] {
+      $existingLock = $null
+      $staleStream = $null
+      $staleReader = $null
+      try {
+        $staleStream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Delete)
+        $staleReader = New-Object IO.StreamReader($staleStream)
+        try { $existingLock = $staleReader.ReadToEnd() | ConvertFrom-Json } catch {}
+        $lockStarted = [datetime]::MinValue
+        $validLock = $null -ne $existingLock -and $existingLock.pidStarted -and
+          [datetime]::TryParse([string]$existingLock.pidStarted, [ref]$lockStarted) -and $null -ne $existingLock.pid
+        $unreadableFresh = -not $validLock -and
+          ([DateTime]::UtcNow - [IO.File]::GetLastWriteTimeUtc($Path)).TotalSeconds -le 60
+        # Supervisor fix 2026-10-10 (Fable P2-1/P2-3): the lock's run folder is the authority.
+        # A finished run (exit.txt present) never blocks; a run whose recorded tree is still
+        # alive always blocks, even after its launcher and wrapper died.
+        $lockRunFolder = $null
+        if ($validLock -and $existingLock.runId -and ([string]$existingLock.runId) -match '^\d{8}-\d{6}-[0-9a-f]{4}$') {
+          $lockRunFolder = Join-Path $runsDir ([string]$existingLock.runId)
+        }
+        $lockRunFinished = $null -ne $lockRunFolder -and (Test-Path -LiteralPath (Join-Path $lockRunFolder 'exit.txt'))
+        $lockRunOrphanAlive = $null -ne $lockRunFolder -and -not $lockRunFinished -and (Test-RunTreeAlive -Folder $lockRunFolder)
+        # Legacy lock (written by the pre-2026-10-10 script, no pidStarted): keep the old rule,
+        # live pid or childPid = busy, so an upgrade never reclaims a running worker's Dir (Fable P2-5).
+        $legacyLockAlive = $false
+        if (-not $validLock -and $null -ne $existingLock -and $null -ne $existingLock.pid -and -not $existingLock.pidStarted) {
+          foreach ($legacyPid in @($existingLock.pid, $existingLock.childPid)) {
+            if ($null -ne $legacyPid -and [int]$legacyPid -gt 0 -and $null -ne (Get-Process -Id ([int]$legacyPid) -ErrorAction SilentlyContinue)) { $legacyLockAlive = $true }
+          }
+        }
+        if (-not $lockRunFinished -and ($unreadableFresh -or $lockRunOrphanAlive -or $legacyLockAlive -or ($validLock -and (
+            (Test-DispatchProcessAlive -ProcessId ([int]$existingLock.pid) -CreationDate $existingLock.pidStarted) -or
+            (Test-DispatchProcessAlive -ProcessId ([int]$existingLock.childPid) -CreationDate $existingLock.childStarted))))) {
+          $hint = if ($existingLock -and $existingLock.runId) { " Reconnect: codex-do.ps1 -Attach $($existingLock.runId). Stop: codex-do.ps1 -Cancel $($existingLock.runId)." } else { '' }
+          Write-Host "REFUSED: another worker is active in this Dir (PID $($existingLock.pid), child PID $($existingLock.childPid) since $($existingLock.startedUtc)). Bundle the work into that run or wait.$hint"
+          exit 3
+        }
+        [IO.File]::Delete($Path)
+      } catch [IO.FileNotFoundException] {
+        # The previous owner finished between our create attempt and stale-lock read.
+      } catch [IO.IOException], [UnauthorizedAccessException] {
+        # Sharing violations and delete-pending files are transient, including access
+        # denied from CreateNew. Retry the whole acquisition after releasing our handles.
+      } finally {
+        if ($null -ne $staleReader) { $staleReader.Dispose() }
+        elseif ($null -ne $staleStream) { $staleStream.Dispose() }
+      }
+      if ($lockRetries -ge 10) {
+        Write-Host 'REFUSED: cannot acquire the Dir lock after 10 retries.'
+        exit 3
+      }
+      $lockRetries++
+      Start-Sleep -Milliseconds 50
+    }
   }
 }
 
@@ -806,6 +1091,8 @@ function Complete-RunObservation {
     Write-Host "worker still running without its wrapper; run: codex-do.ps1 -Cancel $RunId"
     return
   }
+  # Intent: replay wrapper-owned patch results without a second writer. Status: read only. Next: host attach. Blockers: none. Confidence: idempotence fixture.
+  if ($Engine -eq 'grok') { Write-GrokApplyResult -RunFolder $Folder }
   Remove-OwnedDispatchLock -Path $LockPath -RunId $RunId
 }
 
@@ -888,15 +1175,28 @@ function Write-DispatchSubagents {
 }
 function New-DispatchCompletionScript {
   $lines = @('param([string]$RunFolder)', '$ErrorActionPreference = ''Stop''')
+  # Intent: make Grok telemetry durable and independent of Codex rollout discovery. Status: generated from shared parser. Next: host test. Blockers: none. Confidence: JSONL fixture.
+  if ($Engine -eq 'grok') {
+    $lines += 'function Get-GrokSessionId {{ {0} }}' -f (Get-Command Get-GrokSessionId -CommandType Function).Definition
+  }
   foreach ($name in @('Get-DispatchRollouts','Get-DispatchSessionMeta','Get-DispatchParentId','Write-DispatchSubagents','Write-DispatchSession')) {
     $lines += 'function {0} {{ {1} }}' -f $name, (Get-Command $name -CommandType Function).Definition
   }
-  $lines += 'try { $run = Get-Content -Raw -LiteralPath (Join-Path $RunFolder ''run.json'') | ConvertFrom-Json; Write-DispatchSession -Dir $run.dir -AccountHome $run.accountHome -Resume $run.resume -RunStarted ([datetime]$run.startedUtc) -RunFolder $RunFolder } catch {}'
+  $lines += 'try { $run = Get-Content -Raw -LiteralPath (Join-Path $RunFolder ''run.json'') | ConvertFrom-Json; Write-DispatchSession -Dir $run.dir -AccountHome $run.accountHome -Resume $run.resume -RunStarted ([datetime]$run.startedUtc) -RunFolder $RunFolder -Engine $run.engine } catch {}'
   return ($lines -join "`n")
 }
 function Write-DispatchSession {
-  param([string]$Dir, [string]$AccountHome, [string]$Resume, [datetime]$RunStarted, [string]$RunFolder = '')
+  param([string]$Dir, [string]$AccountHome, [string]$Resume, [datetime]$RunStarted, [string]$RunFolder = '', [string]$Engine = 'codex')
 
+  # Intent: choose telemetry by run metadata even in generated complete.ps1. Status: Grok skips rollouts. Next: host check. Blockers: none. Confidence: last JSON sessionId.
+  if ($Engine -eq 'grok') {
+    $session = Get-GrokSessionId -LogPath (Join-Path $RunFolder 'out.log')
+    if ($session -ne 'unknown') {
+      try { [IO.File]::WriteAllText((Join-Path $RunFolder 'session.txt'), $session, (New-Object Text.UTF8Encoding($false))) } catch {}
+    }
+    Write-Host "session: $session"
+    return
+  }
   # Supervisor fix 2026-10-10 (Astra P2): a run folder pins its own session, so -Attach to an
   # older run never reports a newer run's session from the same Dir.
   $pinned = if ($RunFolder) { Join-Path $RunFolder 'session.txt' } else { $null }
@@ -969,7 +1269,9 @@ if ($Status) {
           $code = 71
           $parsed = 0
           if ([int]::TryParse([IO.File]::ReadAllText($finishedPath).Trim(), [ref]$parsed)) { $code = $parsed }
-          if ($null -eq $metadata.PSObject.Properties['sandboxFailure']) {
+          # Intent: preserve Grok's durable exit 77 in status. Status: metadata-selected engine. Next: host test. Blockers: none. Confidence: no Codex sandbox override.
+          if ($metadata.engine -eq 'grok') { $sandboxFailure = $false }
+          elseif ($null -eq $metadata.PSObject.Properties['sandboxFailure']) {
             $sandboxFailure = [bool](Get-CodexSandboxFailure -Path $logPath)
             Update-CodexRunMetadata -Folder $folder.FullName -Fields @{ sandboxFailure = $sandboxFailure }
           } else { $sandboxFailure = [bool]$metadata.sandboxFailure }
@@ -996,7 +1298,18 @@ if ($Status) {
   exit 0
 }
 
-if (-not ($Attach -or $Cancel)) {
+if (-not ($Attach -or $Cancel -or $Undo)) {
+  # Intent: validate Grok's root before any run or lock is created. Status: fail closed. Next: host check. Blockers: none. Confidence: root/HEAD fixtures.
+  if ($Engine -eq 'grok') {
+    try {
+      Test-GrokRepository -Dir $Dir
+      $grokRoot = [IO.Path]::GetFullPath($Dir).TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar
+      if (($stateDir.TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar).StartsWith($grokRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Grok state directory must be outside the original working tree'
+      }
+    }
+    catch { Write-Host ("codex-do: " + ($_.Exception.Message -replace '[\r\n]+', ' ')); exit 78 }
+  }
   # Intent: report RAM without blocking Line's sessions. Status: unreachable exit 75 removed.
   # Next: supervisor host check. Blockers: none. Confidence: false-result and skip fixtures.
   if (-not $NoRamCheck) { [void](Wait-FreeRam -MinGB 1.5 -TimeoutMin 10) }
@@ -1007,6 +1320,8 @@ if (-not ($Attach -or $Cancel)) {
     Write-Host 'codex-do: Win32_Process.Create failed: working directory does not exist.'
     exit 70
   }
+  if ($Engine -eq 'grok') { $selection = [pscustomobject]@{ Mode = $(if ($grokReadOnly) { 'read-only' } else { 'grok-workspace' }) } }
+  else {
   $preflightHome = if ($accountName -cne 'main') { $accountHome } else { '' }
   $selection = Select-CodexSandboxMode -CodexBin $codexBin -Dir $Dir -AccountHome $preflightHome -NoSandboxFallback:$NoSandboxFallback
   if (-not $selection.Mode) { Write-Host "codex-do: SANDBOX UNAVAILABLE: $($selection.Reason)"; exit 73 }
@@ -1017,6 +1332,7 @@ if (-not ($Attach -or $Cancel)) {
   $cargs = @($cargs | ForEach-Object {
     if ($_ -ceq 'windows.sandbox="elevated"') { 'windows.sandbox="{0}"' -f $selection.Mode } else { $_ }
   })
+  }
 }
 
 $normalizedDir = [System.IO.Path]::GetFullPath($Dir).TrimEnd([char[]]@('\', '/')).ToLowerInvariant()
@@ -1036,79 +1352,45 @@ try { $dispatcherStartedUtc = $dispatcherProcess.StartTime.ToUniversalTime().ToS
 finally { $dispatcherProcess.Dispose() }
 $ownsDispatchLock = $false
 
+# Intent: -Undo writes Dir only under the same Dir lock a dispatch takes; the lock has this pid and no runId (A1). Status: K5d. Next: host check. Blockers: none. Confidence: lock-refusal and stale-lock tests.
+if ($Undo) {
+  Enter-DispatchDirLock -Path $dispatchLockFile -Directory $normalizedDir -StartedUtc $dispatchStartedUtc
+  $undoCode = 2
+  try {
+    Write-Host "undo $undoRunId in $Dir"
+    $undoCode = Invoke-GrokUndo -RunFolder $runFolder
+  } catch {
+    Write-Host ("codex-do: undo failed: " + ($_.Exception.Message -replace '[\r\n]+', ' '))
+    $undoCode = 79
+  } finally { Remove-OwnedDispatchLock -Path $dispatchLockFile -StartedUtc $dispatchStartedUtc }
+  exit $undoCode
+}
+
 if ($Attach -or $Cancel) {
   if ($Cancel) {
+    # Intent: do not kill a live wrapper that owns bring-back; seal a dead one's run with 77 and keep apply.json as written. Status: G3 fix2. Next: host cancel. Blockers: none. Confidence: live and dead wrapper fixtures.
+    if ($Engine -eq 'grok' -and (Test-Path -LiteralPath (Join-Path $runFolder 'apply.json')) -and -not (Test-Path -LiteralPath (Join-Path $runFolder 'exit.txt'))) {
+      if ((Test-DispatchProcessAlive -ProcessId ([int]$run.wrapperPid) -CreationDate $run.wrapperCreationDate) -or (Test-RunTreeAlive -Folder $runFolder)) {
+        Write-Host 'grok bring-back in progress; retry in a few seconds'
+        exit 3
+      }
+      try { Write-GrokExitCode -RunFolder $runFolder -Code 77 } catch { Write-Host "codex-do: cannot publish exit.txt: $($_.Exception.Message)"; exit 71 }
+    }
     try { Stop-DetachedRun -Run $run -Folder $runFolder } catch { Write-Host $_.Exception.Message; exit 71 }
+    # Intent: cancel without applying partial edits. Status: preserve recovery worktree. Next: host cancellation. Blockers: none. Confidence: wrapper-only bring-back.
+    if ($Engine -eq 'grok' -and $run.worktreeDir -and (Test-Path -LiteralPath ([string]$run.worktreeDir))) { Write-Host "grok worktree: kept $($run.worktreeDir)" }
     Remove-OwnedDispatchLock -Path $dispatchLockFile -RunId $runId
     exit 0
   }
   $exitCode = Wait-DetachedRun -Folder $runFolder -Run $run -Replay
   Complete-RunObservation -Folder $runFolder -RunId $runId -ExitCode $exitCode -LockPath $dispatchLockFile
-  Write-DispatchSession -Dir $Dir -AccountHome $accountHome -Resume $Resume -RunStarted ([datetime]$run.startedUtc) -RunFolder $runFolder
+  Write-DispatchSession -Dir $Dir -AccountHome $accountHome -Resume $Resume -RunStarted ([datetime]$run.startedUtc) -RunFolder $runFolder -Engine $Engine
   exit $exitCode
 }
 $runId = (Get-Date -Format 'yyyyMMdd-HHmmss-') + [guid]::NewGuid().ToString('N').Substring(0, 4)
 
-$lockRetries = 0
-while (-not $ownsDispatchLock) {
-  try {
-    Write-DispatchLockFile -Path $dispatchLockFile -Directory $normalizedDir -StartedUtc $dispatchStartedUtc -ChildPid $null -CreateNew
-    $ownsDispatchLock = $true
-  } catch [System.IO.IOException], [UnauthorizedAccessException] {
-    $existingLock = $null
-    $staleStream = $null
-    $staleReader = $null
-    try {
-      $staleStream = [IO.File]::Open($dispatchLockFile, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Delete)
-      $staleReader = New-Object IO.StreamReader($staleStream)
-      try { $existingLock = $staleReader.ReadToEnd() | ConvertFrom-Json } catch {}
-      $lockStarted = [datetime]::MinValue
-      $validLock = $null -ne $existingLock -and $existingLock.pidStarted -and
-        [datetime]::TryParse([string]$existingLock.pidStarted, [ref]$lockStarted) -and $null -ne $existingLock.pid
-      $unreadableFresh = -not $validLock -and
-        ([DateTime]::UtcNow - [IO.File]::GetLastWriteTimeUtc($dispatchLockFile)).TotalSeconds -le 60
-      # Supervisor fix 2026-10-10 (Fable P2-1/P2-3): the lock's run folder is the authority.
-      # A finished run (exit.txt present) never blocks; a run whose recorded tree is still
-      # alive always blocks, even after its launcher and wrapper died.
-      $lockRunFolder = $null
-      if ($validLock -and $existingLock.runId -and ([string]$existingLock.runId) -match '^\d{8}-\d{6}-[0-9a-f]{4}$') {
-        $lockRunFolder = Join-Path $runsDir ([string]$existingLock.runId)
-      }
-      $lockRunFinished = $null -ne $lockRunFolder -and (Test-Path -LiteralPath (Join-Path $lockRunFolder 'exit.txt'))
-      $lockRunOrphanAlive = $null -ne $lockRunFolder -and -not $lockRunFinished -and (Test-RunTreeAlive -Folder $lockRunFolder)
-      # Legacy lock (written by the pre-2026-10-10 script, no pidStarted): keep the old rule,
-      # live pid or childPid = busy, so an upgrade never reclaims a running worker's Dir (Fable P2-5).
-      $legacyLockAlive = $false
-      if (-not $validLock -and $null -ne $existingLock -and $null -ne $existingLock.pid -and -not $existingLock.pidStarted) {
-        foreach ($legacyPid in @($existingLock.pid, $existingLock.childPid)) {
-          if ($null -ne $legacyPid -and [int]$legacyPid -gt 0 -and $null -ne (Get-Process -Id ([int]$legacyPid) -ErrorAction SilentlyContinue)) { $legacyLockAlive = $true }
-        }
-      }
-      if (-not $lockRunFinished -and ($unreadableFresh -or $lockRunOrphanAlive -or $legacyLockAlive -or ($validLock -and (
-          (Test-DispatchProcessAlive -ProcessId ([int]$existingLock.pid) -CreationDate $existingLock.pidStarted) -or
-          (Test-DispatchProcessAlive -ProcessId ([int]$existingLock.childPid) -CreationDate $existingLock.childStarted))))) {
-        $hint = if ($existingLock -and $existingLock.runId) { " Reconnect: codex-do.ps1 -Attach $($existingLock.runId). Stop: codex-do.ps1 -Cancel $($existingLock.runId)." } else { '' }
-        Write-Host "REFUSED: another worker is active in this Dir (PID $($existingLock.pid), child PID $($existingLock.childPid) since $($existingLock.startedUtc)). Bundle the work into that run or wait.$hint"
-        exit 3
-      }
-      [IO.File]::Delete($dispatchLockFile)
-    } catch [IO.FileNotFoundException] {
-      # The previous owner finished between our create attempt and stale-lock read.
-    } catch [IO.IOException], [UnauthorizedAccessException] {
-      # Sharing violations and delete-pending files are transient, including access
-      # denied from CreateNew. Retry the whole acquisition after releasing our handles.
-    } finally {
-      if ($null -ne $staleReader) { $staleReader.Dispose() }
-      elseif ($null -ne $staleStream) { $staleStream.Dispose() }
-    }
-    if ($lockRetries -ge 10) {
-      Write-Host 'REFUSED: cannot acquire the Dir lock after 10 retries.'
-      exit 3
-    }
-    $lockRetries++
-    Start-Sleep -Milliseconds 50
-  }
-}
+Enter-DispatchDirLock -Path $dispatchLockFile -Directory $normalizedDir -StartedUtc $dispatchStartedUtc
+$ownsDispatchLock = $true
 
 $stdinTempFile = $null
 $childProcess = $null
@@ -1126,6 +1408,7 @@ if (-not $Attached) {
   # Confidence: Attached regression and parser checks locally; WMI integration pending.
   $completed = $false
   $createdRunFolder = $false
+  $grokWorktree = $null
   try {
     $runFolder = Join-Path $runsDir $runId
     New-Item -ItemType Directory -Path $runsDir -Force | Out-Null
@@ -1136,6 +1419,33 @@ if (-not $Attached) {
     $outputPath = Join-Path $runFolder 'out.log'
     $exitPath = Join-Path $runFolder 'exit.txt'
     $wrapperPath = Join-Path $runFolder 'run.cmd'
+    # Intent: build Grok's detached snapshot and argument vector under the original Dir lock. Status: no original working-tree writes. Next: host smoke test. Blockers: none. Confidence: library tests.
+    if ($Engine -eq 'grok') {
+      # K6a G2: a resume recreates the snapshot at the prior run's worktree path (grok reopens a session only in its first folder).
+      $worktreeDir = if ($grokResumeWorktree) { $grokResumeWorktree } else { Join-Path (Join-Path $stateDir 'grok-wt') $runId }
+      # Intent: V2 (K6a touch-up) - under the Dir lock: a resume needs the prior run finished (exit.txt published, wrapper and tree gone); its kept worktree is moved aside, never deleted,
+      # and stale registrations are pruned before worktree add. Status: K6a touch-up. Next: none. Blockers: none. Confidence: e2e resume-kept + dispatcher alive test.
+      if ($grokResumeWorktree) {
+        $priorFolder = $resumeOwner.folder
+        $priorAlive = (Test-DispatchProcessAlive -ProcessId ([int]$resumeOwner.run.wrapperPid) -CreationDate $resumeOwner.run.wrapperCreationDate) -or (Test-RunTreeAlive -Folder $priorFolder)
+        if ($priorAlive -or -not (Test-Path -LiteralPath (Join-Path $priorFolder 'exit.txt'))) {
+          $why = if ($priorAlive) { 'is still running' } else { 'has no exit.txt (run codex-do.ps1 -Cancel ' + $resumeOwner.runId + ' to seal it)' }
+          Write-Host "codex-do: grok run $($resumeOwner.runId) $why; cannot -Resume its session yet"
+          exit 78
+        }
+        try {
+          $keptPath = Initialize-GrokResumeWorktree -Dir $Dir -WorktreeDir $worktreeDir
+          if ($keptPath) { Write-Host "codex-do: kept worktree of grok run $($resumeOwner.runId) moved to $keptPath" }
+        } catch { Write-Host ("codex-do: cannot prepare the resume worktree: " + ($_.Exception.Message -replace '[\r\n]+', ' ')); exit 78 }
+      }
+      try { $grokWorktree = New-GrokWorktree -Dir $Dir -WorktreeDir $worktreeDir -RunFolder $runFolder }
+      catch { Write-Host ("codex-do: " + ($_.Exception.Message -replace '[\r\n]+', ' ')); exit 78 }
+      $promptText = "You are a worker in Line's harness. Execute the task packet below. If a SUCCESS CRITERIA line conflicts with CONSTRAINTS, NON-GOALS or existing tests, or if a file outside FILES must change, STOP BEFORE EDITING and report the conflict; do not work around it. Never commit, push, or edit files outside the current directory." + $(if ($grokResumeSession) { ' The working directory has been reset to a fresh snapshot of the original repository; edits from earlier runs that were not applied are gone - re-check the files before editing.' } else { '' }) + "`n`n" + $promptText
+      $cargs = @('--prompt-file', $stdinPath, '--cwd', $grokWorktree.worktreeDir) + @($grokPlan.args)
+      foreach ($rule in @('Bash(git push*)','Bash(git commit*)','Bash(git reset*)','Bash(git restore*)','Bash(git clean*)','Bash(git worktree*)','Bash(git stash*)','Bash(git checkout*)','Bash(git switch*)','Bash(git checkout-index*)','Bash(git apply*)','Bash(git merge*)','Bash(git rebase*)','Bash(git revert*)','Bash(git cherry-pick*)','Bash(git pull*)','Bash(git am*)','Bash(git read-tree*)','Bash(git config*)','Bash(git -C*)')) {
+        $cargs += @('--deny', $rule)
+      }
+    }
     # Intent: record child-thread telemetry even if the observing dispatcher dies.
     # Status: wrapper publishes exit.txt before running best-effort telemetry.
     # Next: supervisor detached smoke test. Blockers: none. Confidence: synthetic rollouts.
@@ -1143,26 +1453,45 @@ if (-not $Attached) {
     [IO.File]::WriteAllText($completionPath, (New-DispatchCompletionScript), $utf8NoBom)
     [IO.File]::WriteAllText($stdinPath, $promptText, $utf8NoBom)
     [IO.File]::WriteAllText($outputPath, '', $utf8NoBom)
-    if ($Resume) { $cargs += '-' } else { $cargs += 'Execute the full task specification provided on stdin.' }
+    if ($Engine -eq 'codex') {
+      if ($Resume) { $cargs += '-' } else { $cargs += 'Execute the full task specification provided on stdin.' }
+    }
     $nativeArguments = (($cargs | ForEach-Object { ConvertTo-NativeArgument -Argument ([string]$_) }) -join ' ')
     $wrapper = @('@echo off', 'chcp 65001 >nul', ('set "PATH={0}"' -f $env:PATH.Replace('%', '%%')))
-    if ($accountName -cne 'main') { $wrapper += 'set "CODEX_HOME={0}"' -f $accountHome.Replace('%', '%%') }
-    else { $wrapper += 'set "CODEX_HOME="' }
+    if ($Engine -eq 'codex') {
+      if ($accountName -cne 'main') { $wrapper += 'set "CODEX_HOME={0}"' -f $accountHome.Replace('%', '%%') }
+      else { $wrapper += 'set "CODEX_HOME="' }
+    }
     foreach ($name in @('HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'OPENAI_BASE_URL', 'NODE_OPTIONS', 'NODE_EXTRA_CA_CERTS', 'CODEX_ACC_MAIN_HOME', 'CODEX_ACC_ROOT', 'CODEX_DO_NOTIFY')) {
       $value = [Environment]::GetEnvironmentVariable($name, 'Process')
       if ($null -ne $value) { $wrapper += 'set "{0}={1}"' -f $name, $value.Replace('%', '%%') }
     }
-    $wrapper += 'call "{0}" {1} < "{2}" > "{3}" 2>&1' -f $codexBin, $nativeArguments, $stdinPath, $outputPath
-    $wrapper += '> "{0}.tmp" echo %ERRORLEVEL%' -f $exitPath
-    $wrapper += 'move /y "{0}.tmp" "{0}" >nul' -f $exitPath
+    # Intent: publish exit only after the single writer finishes bring-back. Status: wrapper owns durability. Next: host conflict test. Blockers: none. Confidence: library exit assertions.
+    if ($Engine -eq 'grok') {
+      # K6a: no MCP server starts for a grok worker (Get-GrokLaunchPlan env; values have no cmd specials).
+      foreach ($name in @($grokPlan.env.Keys)) { $wrapper += 'set "{0}={1}"' -f $name, $grokPlan.env[$name] }
+      $wrapper += 'call "{0}" {1} < NUL > "{2}" 2>&1' -f $codexBin, $nativeArguments, $outputPath
+      # Intent: release Windows' current-directory handle before worktree removal. Status: save Grok status before cd. Next: host E2E. Blockers: none. Confidence: reproduced directory sharing violation.
+      $wrapper += 'set "GROK_EXIT=%ERRORLEVEL%"'
+      $wrapper += 'cd /d "{0}"' -f $runFolder
+      $wrapper += '"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "{0}" -RunFolder "{1}" -GrokExit %GROK_EXIT% > "{2}" 2>&1' -f (Join-Path $PSScriptRoot 'grok-bringback.ps1'), $runFolder, (Join-Path $runFolder 'bring-back.log')
+      # Intent: a bring-back script that never starts or dies early still seals the run. Status: G4 fix2. Next: none. Blockers: none. Confidence: run.cmd text test.
+      $wrapper += 'if not exist "{0}" (> "{0}.tmp" echo 77 & move /y "{0}.tmp" "{0}" >nul)' -f $exitPath
+    } else {
+      $wrapper += 'call "{0}" {1} < "{2}" > "{3}" 2>&1' -f $codexBin, $nativeArguments, $stdinPath, $outputPath
+      $wrapper += '> "{0}.tmp" echo %ERRORLEVEL%' -f $exitPath
+      $wrapper += 'move /y "{0}.tmp" "{0}" >nul' -f $exitPath
+    }
     $wrapper += '"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "{0}" -RunFolder "{1}" > "{2}" 2>&1' -f $completionPath, $runFolder, (Join-Path $runFolder 'telemetry.log')
     # Intent: notify Line even when the observer has been terminated.
     # Status: notice follows durable exit publication and cannot change exit.txt.
     # Next: desktop smoke test. Blockers: none. Confidence: fixture log assertions.
     $wrapper += '"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Sta -File "{0}" -RunFolder "{1}"' -f (Join-Path $PSScriptRoot 'codex-run-notify.ps1'), $runFolder
     [IO.File]::WriteAllText($wrapperPath, (($wrapper -join "`n") + "`n"), $utf8NoBom)
-    Write-Host "-> $codexBin $($cargs -join ' ')  [detached prompt via stdin, $($promptText.Length) chars]" -ForegroundColor DarkGray
-    Write-Host "account: $accountName"
+    # K6a G12: the echo cuts the --rules value to 40 characters.
+    $echoArgs = if ($Engine -eq 'grok') { Format-GrokArgsEcho -Arguments @($cargs) } else { $cargs -join ' ' }
+    Write-Host "-> $codexBin $echoArgs  [detached prompt via stdin, $($promptText.Length) chars]" -ForegroundColor DarkGray
+    if ($Engine -eq 'codex') { Write-Host "account: $accountName" }
     Write-DispatchTrail
     $runStarted = Get-Date
     # Publish enough metadata for a fast worker's notice before starting the wrapper.
@@ -1174,13 +1503,20 @@ if (-not $Attached) {
       startedUtc = $runStarted.ToUniversalTime().ToString('o'); wrapperPid = 0
       wrapperCreationDate = $null
       specFile = $specFullPath; specSha256 = $specSha256
+      engineSource = $engineSource                                 # K5e: flag|env|file|auto, or <source>-fallback (U5)
+    }
+    # Intent: retain original dir/spec hash for locks and ledger linking. Status: additive Grok metadata. Next: host ledger check. Blockers: none. Confidence: isolated worktree address.
+    if ($Engine -eq 'grok') {
+      $run.engine = 'grok'; $run.worktreeDir = $grokWorktree.worktreeDir; $run.manifest = $grokWorktree.manifest
+      # K6a G8: the wrapper's bring-back writes the final answer here before it publishes exit.txt.
+      if ($OutFile) { $run.outFile = $OutFile }
     }
     [IO.File]::WriteAllText((Join-Path $runFolder 'run.json'), ($run | ConvertTo-Json), $utf8NoBom)
     try {
       $startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ ShowWindow = [uint16]0 }
       $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
         CommandLine = 'cmd.exe /d /v:off /s /c ""{0}""' -f $wrapperPath  # /s + outer quotes: paths with space plus &()@| keep their quotes
-        CurrentDirectory = [IO.Path]::GetFullPath($Dir)
+        CurrentDirectory = $(if ($Engine -eq 'grok') { $grokWorktree.worktreeDir } else { [IO.Path]::GetFullPath($Dir) })
         ProcessStartupInformation = $startup
       } -ErrorAction Stop
     } catch {
@@ -1220,14 +1556,16 @@ if (-not $Attached) {
       Remove-OwnedDispatchLock -Path $dispatchLockFile -RunId $runId
     }
     if ($createdRunFolder -and $null -eq $childPid) {
-      foreach ($name in @('stdin.txt', 'out.log', 'run.cmd', 'run.json', 'complete.ps1')) {
+      # Intent: discard a snapshot only when no worker launched. Status: prune on removal. Next: host launch-failure check. Blockers: none. Confidence: child PID gate.
+      if ($null -ne $grokWorktree) { Remove-GrokWorktree -Dir $Dir -WorktreeDir $grokWorktree.worktreeDir }
+      foreach ($name in @('stdin.txt', 'out.log', 'run.cmd', 'run.json', 'complete.ps1', 'manifest.json')) {
         Remove-Item -LiteralPath (Join-Path $runFolder $name) -Force -ErrorAction SilentlyContinue
       }
       # Non-recursive: remove only this newly created folder, and only if empty.
       [IO.Directory]::Delete($runFolder)
     }
   }
-  Write-DispatchSession -Dir $Dir -AccountHome $accountHome -Resume $Resume -RunStarted $runStarted -RunFolder $runFolder
+  Write-DispatchSession -Dir $Dir -AccountHome $accountHome -Resume $Resume -RunStarted $runStarted -RunFolder $runFolder -Engine $Engine
   exit $exitCode
 }
 

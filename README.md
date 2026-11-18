@@ -48,14 +48,14 @@ Pace = used % / % of the window elapsed. The values live in `claude/ontology/har
 ```mermaid
 flowchart TD
     Q["Read Codex and Claude quota"] --> X{"Codex used >= 95%<br/>AND Claude stressed?"}
-    X -- yes --> STOP["No new packets; report to Line<br/>(the only stop rule)"]
+    X -- yes --> GROK["Grok worker via codex-do auto<br/>(Critical: Opus subagent; layer 2 Fable)"]
     X -- no --> Y{"Claude stressed?<br/>7-day pace > 1.2 or used >= 70%"}
     Y -- yes --> BOTH["Standard-A and Standard-B: gpt-6-sol high, never deferred<br/>Layer 2: gpt-6-astra; no Opus workers"]
     Y -- no --> Z{"Codex level"}
     Z -- "C0: pace <= 1.0, used < 70%" --> N0["Normal table:<br/>Standard-A sol, Standard-B / Important / Critical astra,<br/>exploration luna"]
     Z -- "C1: pace > 1.0 or used 70-84%" --> N1["Small Standard-B to sol,<br/>exploration by Claude, layer 2 Fable"]
     Z -- "C2: pace > 1.3 or used 85-94%" --> N2["Codex for Important/Critical only,<br/>Standard to an Opus subagent, no resumes"]
-    Z -- "C3: used >= 95%" --> N3["No Codex: Opus worker, Fable layer 2"]
+    Z -- "C3: used >= 95%" --> N3["No Codex: Grok worker via codex-do auto<br/>(Critical: Opus subagent), Fable layer 2"]
 ```
 
 Low free RAM never blocks, waits, or stops a session. The RAM check only reports commit headroom.
@@ -104,12 +104,61 @@ flowchart LR
 
 The full operating policy is in `codex/AGENTS.md` (shared rules) and `claude/CLAUDE.md` (Claude-side detail).
 
+## Workers, engines and accounts
+
+### Engine swap: Codex or Grok
+
+`codex-do.ps1` runs every packet on one of two engines. `-Engine` defaults to `auto`:
+
+- **auto**: Codex while it has quota. When the active Codex account's weekly quota is used >= 95% (fresh data), the run goes to the Grok Build CLI. Critical packets never auto-switch (their worker is an Opus subagent).
+- **Precedence**: `-Engine codex|grok` flag > env `CODEX_DO_ENGINE` > `~/.claude/state/engine.txt` (set with `-SetEngine`) > auto.
+- **Grok runs** use `grok-4.7-build-fast` at effort `xhigh` with `--no-plan --disable-web-search --no-subagents --max-turns 300` and a system-prompt rule to finish every criterion. Grok works in an isolated worktree that is a byte-exact copy of the repo (hash manifest). Its result comes back file by file only if nothing changed in the repo meanwhile (else exit 77, nothing applied), and every applied run can be reverted with `-Undo`. MCP tools are blocked on every Grok run. Grok's own sandbox is not enforced on Windows, so isolation comes from the worktree, git deny rules and tool lists.
+- **On Grok**, `-Resume` continues a Grok session, `-Sandbox read-only` brings nothing back, `-Attached` waits and `-Account` is ignored.
+- **Review**: `codex-review.ps1` takes the same `-Engine auto|codex|grok`; when Codex is out, the layer-2 model review runs on Grok (read-only tool list), next to the Fable subagent review.
+
+```powershell
+codex-do.ps1 -SetEngine show                 # current engine, its source, Codex used %
+codex-do.ps1 -SetEngine grok                 # force Grok   (codex | auto to change back)
+codex-do.ps1 -Dir <repo> -SpecFile p.md      # dispatch on the chosen engine
+codex-do.ps1 -Status                         # list runs;  -Attach last  /  -Cancel last
+codex-do.ps1 -Undo last -Dir <repo>          # revert the newest applied Grok run byte-exact
+```
+
+The status line's codex row shows the engine (`engine: grok (auto)`); the grok row shows the Grok weekly quota.
+
+### Codex accounts (`codex-acc.ps1`, in this repository)
+
+Each account has its own Codex home under `~/.codex-accounts/<name>`, so switching never copies or rewrites tokens. `codex-do.ps1 -Account <name>` runs one packet on another account without changing the default.
+
+```powershell
+codex-acc.ps1 list                 # accounts, weekly used %, reset, logged in
+codex-acc.ps1 add <name>           # new home + browser login (names: lowercase; main/acc1/acc2 are reserved)
+codex-acc.ps1 login <name>         # log in again
+codex-acc.ps1 use <name>           # switch the default account
+codex-acc.ps1 run -Account <name>  # start Codex on one account
+```
+
+Log each ChatGPT account into one name only; two homes with the same login rotate each other's token out.
+
+### Claude accounts (optional external tool)
+
+Claude Code account switching uses [realiti4/claude-swap](https://github.com/realiti4/claude-swap) (MIT, not included here). It was reviewed before use (static review 2026-11-18: only Anthropic hosts and a PyPI update check). Install it pinned: `uv tool install claude-swap==1.1.0`, then `cswap config set updates.check false`.
+
+```text
+/login (Claude Code)  then  cswap add     # store an account (never /logout first)
+cswap list                                # every account's 5h / 7d usage
+cswap switch [n | email | --strategy best]
+cswap run <n>                             # one terminal on another account, others unchanged
+```
+
+On Windows it keeps tokens base64-encoded in `~/.claude-swap-backup/`; treat that folder as a secret store. A switch moves every running Claude Code session to the new account on its next message. The status line notices a switch at once (caches older than `~/.claude/.credentials.json` are refreshed).
+
 ## Layout
 
 | Path | Restores to | Contents |
 | --- | --- | --- |
 | `claude/CLAUDE.md`, `claude/settings.json` | `~/.claude/` | Claude Code rules and settings (hooks, model, status line) |
-| `claude/bin/` | `~/.claude/bin/` | Worker dispatch (`codex-do.ps1`), review gate (`codex-review.ps1`), ledger (`ledger-add.ps1`), packet lint, ontology sensor (`ontology-check.js`), Codex account switcher, sandbox preflight, run notifications, weekly MCP updater, self-tests |
+| `claude/bin/` | `~/.claude/bin/` | Worker dispatch (`codex-do.ps1`, Grok engine `grok-engine-lib.ps1` + `grok-bringback.ps1`), review gate (`codex-review.ps1`), ledger (`ledger-add.ps1`), packet lint, ontology sensor (`ontology-check.js`), Codex account switcher, sandbox preflight, run notifications, weekly MCP updater, self-tests |
 | `claude/hooks/` | `~/.claude/hooks/` | PreToolUse, UserPromptSubmit, PostToolUse, Stop, and SessionStart hooks |
 | `claude/docs/` | `~/.claude/docs/` | Harness reference, packet checklist, workflow notes |
 | `claude/ontology/` | `~/.claude/ontology/` | `harness.ontology.json`: the single source of quota, routing, review, action, and hook rules |
@@ -126,7 +175,7 @@ The full operating policy is in `codex/AGENTS.md` (shared rules) and `claude/CLA
 
 ## Restore on a new machine
 
-Requirements: Windows 11, PowerShell 5.1, Node.js, Git, the Claude Code CLI, and the Codex CLI.
+Requirements: Windows 11, PowerShell 5.1, Node.js, Git, the Claude Code CLI, and the Codex CLI. Optional: the Grok Build CLI (`~/.grok/bin/grok.exe`, sign in with `grok login`) for the Grok engine, and `uv` for claude-swap.
 
 ```powershell
 git clone https://github.com/LineLuLan/line-harness.git
@@ -147,7 +196,7 @@ Do these steps by hand:
 
 The configs were captured on a machine whose user folder is `C:\Users\ADMIN`. With `-Apply`, `restore.ps1` rewrites that folder to your own user folder in `~/.claude/settings.json` (hooks and status line), `~/.codex/config.toml`, and `~/.codex/hooks.json`. The rule files (`CLAUDE.md`, `AGENTS.md`) still mention `C:\Users\ADMIN` as text.
 
-The status line's OpenRouter row reads the `OPENROUTER_API_KEY` environment variable. Without it, the row stays empty; the other rows still work.
+The status line's Grok row reads `~/.grok/auth.json` (Grok CLI login) and shows the weekly quota; without a login it shows "not logged in".
 
 ## What is not in this repository
 

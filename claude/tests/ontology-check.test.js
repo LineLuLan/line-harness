@@ -54,6 +54,25 @@ test('clean, golden generator, INFO only, missing projects directory and quiet h
   const hook = f.run('--hook'); assert.equal(hook.status, 0); assert.equal(hook.stdout, '');
 });
 
+/* Intent: K5f - Codex C3 routes to Grok workers (auto) instead of the old K1+C3 STOP; the generated quota block
+ * and the matrix say so. Status: complete. Next: none. Blockers: none. Confidence: this test. */
+test('Grok C3 route: generated block, matrix rows and no STOP literal', () => {
+  const { generateBlocks, validate } = require(script);
+  const o = JSON.parse(fs.readFileSync(source, 'utf8'));
+  const quota = generateBlocks(o).quota;
+  assert.ok(quota.includes('| Used >= 95% | No Codex. Grok worker via codex-do (auto at used >= 95%): Standard, Important and Exploration; '
+    + 'Critical worker = Opus subagent; layer 2 = Grok review (codex-review.ps1 auto) + Fable subagent; ledger `worker=grok-4.7-build-fast`. |'), quota);
+  assert.ok(quota.includes('- Codex used >= 95% while the Claude rule is active: Grok workers continue; layer 2 = Fable subagent; report to Line.'));
+  assert.ok(!/no new packets|only stop rule/i.test(quota));
+  assert.equal(o.routing.labels.grok, 'grok-4.7-build-fast xhigh (codex-do auto)');
+  assert.equal(o.routing.labels.grokImp, 'grok-4.7-build-fast xhigh; Critical: Opus subagent');
+  for (const k of ['K0', 'K1']) assert.deepEqual(o.routing.matrix[k].C3, ['grok', 'grok', 'grokImp', 'grok', 'fable']);
+  assert.ok(o.quota.claudeRules.some(x => x.id === 'STOP' && x.test === 'C3 and K1'));
+  validate(o);
+  assert.throws(() => validate({ ...o, routing: { ...o.routing, matrix: { ...o.routing.matrix, K1: { ...o.routing.matrix.K1, C3: 'STOP' } } } }),
+    /routing\.matrix\.K1\.C3/);
+});
+
 test('BLOCKS drift, write limited to content and idempotent, CRLF preserved', t => {
   const f = fixture(t), file = path.join(f.claude, 'CLAUDE.md');
   const before = 'prefix\r\n' + fs.readFileSync(file, 'utf8').replace(/\r?\n/g, '\r\n') + '\r\nsuffix';

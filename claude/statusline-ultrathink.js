@@ -5,6 +5,7 @@
 //   ✦ ultrathink · Fable 5.1 · ctx ▓▓▓▓▓▓▓░░░ 72% · $1.23
 //     ⚡ claude <email> · 5h <bar> % · wk <bar> %
 //     ⚡ codex <email> · gpt-5.5 xhigh ⚡fast · wk <bar> % ↻ dd/MM
+//     ⚡ grok <email> · wk <bar> % ↻ dd/MM
 //     📁 dir · ⎇ branch · ◇ recent-skill · ⚙ recent-mcp-server
 //
 // All bars/percentages show what is LEFT (full bar = plenty remaining).
@@ -99,20 +100,116 @@ function weeklyPace(usedPercent, resetsAt, nowMs = Date.now()) {
   return usedPercent / (100 * elapsedMs / weekMs);
 }
 
-if (require.main !== module) {
-  module.exports = { codexHome, summarizeRuns, weeklyPace };
-  return;
+// colors (256-color palette from ultrathink)
+const RESET = '\x1b[0m', DIM = '\x1b[2m', BOLD = '\x1b[1m';
+const c = n => `\x1b[38;5;${n}m`;
+const LAVENDER = c(141), PEACH = c(216), SKY = c(117), MINT = c(121),
+  AMBER = c(214), CORAL = c(203), SLATE = c(248), SAGE = c(151),
+  CLOUD = c(253), STEEL = c(110);
+const SEP = ` ${SLATE}·${RESET} `;
+const gauge = left => (left > 50 ? MINT : left > 20 ? AMBER : CORAL);
+/* Intent: use the ontology's pace colours, with a safe local fallback for missing/invalid input.
+ * Status: complete. Next: install after review. Blockers: none. Confidence: real renderer fixture. */
+function paceThresholds() {
+  try {
+    const file = process.env.ULTRATHINK_ONTOLOGY !== undefined ? process.env.ULTRATHINK_ONTOLOGY
+      : path.join(process.env.USERPROFILE || HOME, '.claude/ontology/harness.ontology.json');
+    const thresholds = JSON.parse(fs.readFileSync(file, 'utf8')).quota?.thresholds;
+    if (Number.isFinite(thresholds?.codexPace1) && Number.isFinite(thresholds?.codexPace2)) return thresholds;
+  } catch { /* The statusline still renders when the ontology is absent or invalid. */ }
+  return { codexPace1: 1.0, codexPace2: 1.3 };
+}
+let PACE;
+const paceLabel = pace => pace == null ? ''
+  : ` ${pace > PACE.codexPace2 ? CORAL : pace > PACE.codexPace1 ? AMBER : SAGE}pace ${pace.toFixed(1)}x${RESET}`;
+
+// bar of what's LEFT: full = plenty remaining
+function bar(left, width = 10) {
+  const filled = Math.max(0, Math.min(width, Math.round((left / 100) * width)));
+  return `${gauge(left)}${'▓'.repeat(filled)}${'░'.repeat(width - filled)} ${left}%${RESET}`;
 }
 
+const fmtReset = epochSec => {
+  if (!epochSec) return '';
+  const d = new Date(epochSec * 1000);
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+
+// Intent: show Grok's account and weekly quota without rendering credential fields.
+// Status: fixture-covered. Next: validate live data on the host. Blockers: none. Confidence: high.
+function grokRow(cache, nowMs = Date.now()) {
+  if (!cache || typeof cache !== 'object') return '';
+  let row = `  ${BOLD}${LAVENDER}⚡${RESET} ${PEACH}grok${RESET} ${CLOUD}${cache.email || 'not logged in'}${RESET}`;
+  if (cache.loggedIn === false) return row;
+  if (cache.expired) return `${row}${SEP}${AMBER}${cache.refreshable ? 'token idle - auto-refresh on next grok run' : 'login expired - run grok login'}${RESET}`;
+  let part = '';
+  // Touch-up 2026-11-17: the live API sends "USAGE_PERIOD_TYPE_WEEKLY", not "weekly".
+  const weekly = typeof cache.periodType === 'string' && /(^|_)weekly$/i.test(cache.periodType);
+  const used = cache.usedPercent;
+  const resetMs = typeof cache.periodEnd === 'string' ? Date.parse(cache.periodEnd) : NaN;
+  const resetSec = Number.isFinite(resetMs) ? resetMs / 1000 : null;
+  if (weekly && typeof used === 'number' && Number.isFinite(used) && used >= 0 && used <= 100) {
+    part += `${SEP}${SLATE}wk${RESET} ${bar(100 - used)}`;
+    part += paceLabel(weeklyPace(used, resetSec, nowMs));
+  }
+  const reset = fmtReset(resetSec);
+  if (reset) part += ` ${SLATE}↻ ${reset}${RESET}`;
+  if (part && Number.isFinite(cache.ts) && nowMs - cache.ts > 30 * 60_000) part = `${DIM}${part}${RESET}`;
+  return row + part;
+}
+
+// Intent: one cache name per Codex account, shared with codex-do (grok-engine-lib.ps1 Get-CodexUsageCacheSuffix):
+// '' for the main home, else '-' + first 16 hex of SHA-256 (UTF-8) of the account home string.
+// Status: K5e (E7). Next: none. Blockers: none. Confidence: cross-language hash test.
+function codexCacheSuffix(home, mainHome) {
+  return home === mainHome ? '' : '-' + require('crypto').createHash('sha256').update(home).digest('hex').slice(0, 16);
+}
+
+// Intent: K5e auto rule, same as codex-do's Get-CodexQuotaState: used = weekly.usedPercent if numeric, else 100 - left;
+// grok when used >= threshold AND (resetsAt in the future, or resetsAt missing and dataTs < 24 h old); anything else = codex.
+// Status: K5e (E10). Next: none. Blockers: none. Confidence: statusline-engine tests.
+function codexAutoGrok(cache, threshold, nowMs = Date.now()) {
+  try {
+    const weekly = cache && typeof cache === 'object' ? cache.weekly : null;
+    if (!weekly || typeof weekly !== 'object') return false;
+    const num = v => typeof v === 'number' && Number.isFinite(v);
+    const used = num(weekly.usedPercent) ? weekly.usedPercent : num(weekly.left) ? 100 - weekly.left : null;
+    if (used == null || !(used >= threshold)) return false;
+    const reset = weekly.resetsAt;
+    if (reset != null && reset !== '') {
+      // U2: a number above 1e11 is already milliseconds (same rule as codex-do's Get-CodexQuotaState).
+      const resetMs = num(reset) ? (reset > 1e11 ? reset : reset * 1000) : typeof reset === 'string' ? Date.parse(reset) : NaN;
+      return Number.isFinite(resetMs) && resetMs > nowMs;
+    }
+    const dataMs = typeof cache.dataTs === 'string' && cache.dataTs ? Date.parse(cache.dataTs) : NaN;
+    return Number.isFinite(dataMs) && nowMs - dataMs < 24 * 60 * 60_000;
+  } catch { return false; }
+}
+
+// Intent: show which engine codex-do will use: engine.txt codex|grok = manual (shown even without a cache);
+// auto (or missing/invalid file) = 'engine: grok (auto)' only when the auto rule picks grok. CODEX_DO_ENGINE is not shown.
+// Status: K5e (E10). Next: host render. Blockers: none. Confidence: statusline-engine tests.
+function engineSuffix(engineText, cache, threshold, nowMs = Date.now()) {
+  const mode = typeof engineText === 'string' ? engineText.trim().toLowerCase() : '';
+  if (mode === 'codex' || mode === 'grok') return `${SEP}${mode === 'grok' ? AMBER : SLATE}engine: ${mode} (manual)${RESET}`;
+  return codexAutoGrok(cache, threshold, nowMs) ? `${SEP}${AMBER}engine: grok (auto)${RESET}` : '';
+}
+
+if (require.main !== module) {
+  PACE = { codexPace1: 1.0, codexPace2: 1.3 };
+  module.exports = { codexHome, summarizeRuns, weeklyPace, grokRow, codexCacheSuffix, codexAutoGrok, engineSuffix };
+  return;
+}
+PACE = paceThresholds();
+
 const CODEX_HOME = codexHome();
-const CODEX_ACCOUNT = CODEX_HOME === (process.env.CODEX_ACC_MAIN_HOME || path.join(HOME, '.codex'))
-  ? '' : path.basename(CODEX_HOME);
+const CODEX_MAIN_HOME = process.env.CODEX_ACC_MAIN_HOME || path.join(HOME, '.codex');
+const CODEX_ACCOUNT = CODEX_HOME === CODEX_MAIN_HOME ? '' : path.basename(CODEX_HOME);
 const CACHE = path.join(os.tmpdir(), 'ultrathink-status');
 const USAGE_CACHE = path.join(CACHE, 'anthropic-usage.json');
-const CODEX_CACHE_SUFFIX = CODEX_ACCOUNT
-  ? '-' + require('crypto').createHash('sha256').update(CODEX_HOME).digest('hex').slice(0, 16) : '';
+const CODEX_CACHE_SUFFIX = codexCacheSuffix(CODEX_HOME, CODEX_MAIN_HOME);
 const CODEX_CACHE = path.join(CACHE, `codex-usage${CODEX_CACHE_SUFFIX}.json`);
-const OR_CACHE = path.join(CACHE, 'openrouter-usage.json');
+const GROK_CACHE = path.join(CACHE, 'grok-usage.json');
 const ACC_CACHE = path.join(CACHE, `accounts${CODEX_CACHE_SUFFIX}.json`);
 const DISPATCH_TRAIL = process.env.ULTRATHINK_TRAIL_OVERRIDE || path.join(HOME, '.claude', 'state', 'dispatch-trail.log');
 try { fs.mkdirSync(CACHE, { recursive: true }); } catch {}
@@ -120,11 +217,17 @@ try { fs.mkdirSync(CACHE, { recursive: true }); } catch {}
 function fresh(file, ttlMs) {
   try { return Date.now() - fs.statSync(file).mtimeMs < ttlMs; } catch { return false; }
 }
+// 2026-11-18 (claude-swap): an account switch rewrites ~/.claude/.credentials.json; Claude caches older than it are stale.
+function freshClaude(file, ttlMs) {
+  if (!fresh(file, ttlMs)) return false;
+  try { return fs.statSync(file).mtimeMs >= fs.statSync(path.join(HOME, '.claude', '.credentials.json')).mtimeMs; } catch { return true; }
+}
 
 // ---------------------------------------------------------------------------
 // Background refresh: node statusline-ultrathink.js --refresh
 // (a) Anthropic OAuth usage → anthropic-usage.json
-// (b) Codex rate limits from newest session rollout → codex-usage.json
+// (b) Grok billing usage → grok-usage.json
+// (c) Codex rate limits from newest session rollout → codex-usage.json
 // ---------------------------------------------------------------------------
 if (process.argv.includes('--refresh')) {
   (async () => {
@@ -144,48 +247,50 @@ if (process.argv.includes('--refresh')) {
         if (json && json.five_hour) fs.writeFileSync(USAGE_CACHE, JSON.stringify(json));
       }
     } catch {}
+    // Intent: cache only display fields from Grok billing and preserve good data on API errors.
+    // Status: implemented. Next: validate live data on the host. Blockers: none. Confidence: high.
     try {
-      // Env var first so the status line works on any machine; Line's TwoHearts .env.local is the fallback.
-      let key = (process.env.OPENROUTER_API_KEY || '').trim();
-      if (!key) {
-        const envFile = process.env.ULTRATHINK_OPENROUTER_ENV_FILE || 'D:\\01_Workspaces\\TwoHearts\\.env.local';
-        const match = fs.readFileSync(envFile, 'utf8').match(/^OPENROUTER_API_KEY=(.+)$/m);
-        key = match ? match[1].trim() : '';
-      }
-      if (key) {
-        const headers = { Authorization: `Bearer ${key}` };
-        const out = { total: null, used: null, daily: null, weekly: null, limit: null, limitRemaining: null };
-        try {
-          const res = await fetch('https://openrouter.ai/api/v1/credits', {
-            headers,
-            signal: AbortSignal.timeout(3000),
-          });
-          const json = await res.json();
-          const credits = json && json.data;
-          if (credits) {
-            out.total = typeof credits.total_credits === 'number' ? credits.total_credits : null;
-            out.used = typeof credits.total_usage === 'number' ? credits.total_usage : null;
+      const authFile = path.join(process.env.GROK_HOME || path.join(HOME, '.grok'), 'auth.json');
+      if (!fs.existsSync(authFile)) {
+        fs.writeFileSync(GROK_CACHE, JSON.stringify({ loggedIn: false, ts: Date.now() }));
+      } else {
+        const auth = JSON.parse(fs.readFileSync(authFile, 'utf8'));
+        const entry = auth && typeof auth === 'object' ? Object.values(auth)[0] : null;
+        if (!entry) {
+          fs.writeFileSync(GROK_CACHE, JSON.stringify({ loggedIn: false, ts: Date.now() }));
+        } else {
+          const { key, user_id: userId, email, expires_at: expiresAt } = entry;
+          const safeEmail = typeof email === 'string' ? email : '';
+          const expiryMs = typeof expiresAt === 'number'
+            ? (expiresAt < 1e12 ? expiresAt * 1000 : expiresAt)
+            : typeof expiresAt === 'string' ? Date.parse(expiresAt) : NaN;
+          if (expiresAt != null && expiresAt !== '' && !(expiryMs > Date.now())) {
+            // 2026-11-18: access token lives ~6 h; the grok CLI refreshes it itself on the next run (refresh_token present).
+            const refreshable = typeof entry.refresh_token === 'string' && entry.refresh_token.length > 0;
+            fs.writeFileSync(GROK_CACHE, JSON.stringify({ email: safeEmail, expired: true, refreshable, ts: Date.now() }));
+          } else if (typeof key === 'string' && key && typeof userId === 'string' && userId) {
+            const res = await fetch('https://cli-chat-proxy.grok.com/v1/billing?format=credits', {
+              headers: { Authorization: `Bearer ${key}`, 'X-XAI-Token-Auth': 'xai-grok-cli', 'x-userid': userId },
+              signal: AbortSignal.timeout(3000),
+            });
+            if (!res.ok) throw new Error('Grok billing request failed');
+            const config = (await res.json())?.config;
+            const usedPercent = config?.creditUsagePercent;
+            const period = config?.currentPeriod;
+            if (typeof usedPercent !== 'number' || !Number.isFinite(usedPercent)
+              || usedPercent < 0 || usedPercent > 100 || !period
+              || typeof period.type !== 'string' || typeof period.end !== 'string'
+              || !Number.isFinite(Date.parse(period.end))) {
+              throw new Error('Grok billing response missing quota');
+            }
+            fs.writeFileSync(GROK_CACHE, JSON.stringify({
+              email: safeEmail, usedPercent,
+              periodType: period.type, periodEnd: period.end,
+              prepaid: typeof config.prepaidBalance?.val === 'number' ? config.prepaidBalance.val : null,
+              expired: false, ts: Date.now(),
+            }));
           }
-        } catch {}
-        try {
-          const res = await fetch('https://openrouter.ai/api/v1/key', {
-            headers,
-            signal: AbortSignal.timeout(3000),
-          });
-          const json = await res.json();
-          const usage = json && json.data;
-          if (usage) {
-            out.daily = typeof usage.usage_daily === 'number' ? usage.usage_daily : null;
-            out.weekly = typeof usage.usage_weekly === 'number' ? usage.usage_weekly : null;
-            out.limit = typeof usage.limit === 'number' ? usage.limit : null;
-            out.limitRemaining = typeof usage.limit_remaining === 'number' ? usage.limit_remaining : null;
-            out.byokDaily = typeof usage.byok_usage_daily === 'number' ? usage.byok_usage_daily : null;
-            out.byokWeekly = typeof usage.byok_usage_weekly === 'number' ? usage.byok_usage_weekly : null;
-            out.allTime = (typeof usage.usage === 'number' ? usage.usage : 0)
-              + (typeof usage.byok_usage === 'number' ? usage.byok_usage : 0);
-          }
-        } catch {}
-        fs.writeFileSync(OR_CACHE, JSON.stringify(out));
+        }
       }
     } catch {}
     try { refreshCodexUsage(); } catch {}
@@ -299,37 +404,8 @@ const ctxLeft = Math.max(0, 100 - usedPct);
 const cost = Number((data.cost && data.cost.total_cost_usd) || 0).toFixed(2);
 const cwd = (data.workspace && data.workspace.current_dir) || data.cwd || process.cwd();
 
-// colors (256-color palette from ultrathink)
-const RESET = '\x1b[0m', DIM = '\x1b[2m', BOLD = '\x1b[1m';
-const c = n => `\x1b[38;5;${n}m`;
-const LAVENDER = c(141), PEACH = c(216), SKY = c(117), MINT = c(121),
-  AMBER = c(214), CORAL = c(203), SLATE = c(248), SAGE = c(151),
-  CLOUD = c(253), STEEL = c(110);
-const SEP = ` ${SLATE}·${RESET} `;
-const gauge = left => (left > 50 ? MINT : left > 20 ? AMBER : CORAL);
-/* Intent: use the ontology's pace colours, with a safe local fallback for missing/invalid input.
- * Status: complete. Next: install after review. Blockers: none. Confidence: real renderer fixture. */
-function paceThresholds() {
-  try {
-    const file = process.env.ULTRATHINK_ONTOLOGY !== undefined ? process.env.ULTRATHINK_ONTOLOGY
-      : path.join(process.env.USERPROFILE || HOME, '.claude/ontology/harness.ontology.json');
-    const thresholds = JSON.parse(fs.readFileSync(file, 'utf8')).quota?.thresholds;
-    if (Number.isFinite(thresholds?.codexPace1) && Number.isFinite(thresholds?.codexPace2)) return thresholds;
-  } catch { /* The statusline still renders when the ontology is absent or invalid. */ }
-  return { codexPace1: 1.0, codexPace2: 1.3 };
-}
-const PACE = paceThresholds();
-const paceLabel = pace => pace == null ? ''
-  : ` ${pace > PACE.codexPace2 ? CORAL : pace > PACE.codexPace1 ? AMBER : SAGE}pace ${pace.toFixed(1)}x${RESET}`;
-
-// bar of what's LEFT: full = plenty remaining
-function bar(left, width = 10) {
-  const filled = Math.max(0, Math.min(width, Math.round((left / 100) * width)));
-  return `${gauge(left)}${'▓'.repeat(filled)}${'░'.repeat(width - filled)} ${left}%${RESET}`;
-}
-
 // kick a background refresh when either cache is stale (never blocks render)
-if (!fresh(USAGE_CACHE, 60_000) || !fresh(CODEX_CACHE, 60_000) || !fresh(OR_CACHE, 300_000)) {
+if (!freshClaude(USAGE_CACHE, 60_000) || !fresh(CODEX_CACHE, 60_000) || !fresh(GROK_CACHE, 300_000)) {
   try {
     spawn(process.execPath, [__filename, '--refresh'], { detached: true, stdio: 'ignore' }).unref();
   } catch {}
@@ -358,7 +434,7 @@ try { codexUsage = JSON.parse(fs.readFileSync(CODEX_CACHE, 'utf8')); } catch {}
 
 // accounts (claude + codex emails), cached 10 min; never prints tokens
 function loadAccounts() {
-  if (fresh(ACC_CACHE, 600_000)) {
+  if (freshClaude(ACC_CACHE, 600_000)) {
     try { return JSON.parse(fs.readFileSync(ACC_CACHE, 'utf8')); } catch {}
   }
   const acc = { claude: '', codex: '', codexPlan: '' };
@@ -431,27 +507,6 @@ function recentTools(sessionId) {
 }
 const tools = recentTools(sid);
 
-function evalModel(dir) {
-  try {
-    const root = path.join(dir, '.g0');
-    const files = fs.readdirSync(root)
-      .filter(name => /^run-.*\.ps1$/.test(name))
-      .map(name => {
-        const p = path.join(root, name);
-        return { p, m: fs.statSync(p).mtimeMs };
-      })
-      .sort((a, b) => b.m - a.m)
-      .slice(0, 3);
-    for (const file of files) {
-      try {
-        const match = fs.readFileSync(file.p, 'utf8').match(/--model\s+(\S+)/);
-        if (match) return match[1];
-      } catch {}
-    }
-  } catch {}
-  return '';
-}
-
 // Intent: session totals survive long runs; missing session keeps the 8h fallback.
 // Status: fixture-covered. Next: supervisor review. Blockers: none. Confidence: high.
 function recentDispatches(sessionId) {
@@ -481,12 +536,6 @@ function recentDispatches(sessionId) {
   }).join(' ');
 }
 const dispatches = recentDispatches(sid);
-
-const fmtReset = epochSec => {
-  if (!epochSec) return '';
-  const d = new Date(epochSec * 1000);
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
-};
 
 // === Line 1: brand · model · context bar · cost ===
 // Animated brand: statusline re-renders every few hundred ms while active, so
@@ -533,6 +582,13 @@ if (codexUsage && (codexUsage.fiveH || codexUsage.weekly)) {
   }
   l3 += stale ? `${DIM}${part}${RESET}` : part;
 }
+// Intent: K5e criterion 5 - engine mode after the quota part; never throws, missing files = no suffix. Status: K5e. Next: host render. Blockers: none. Confidence: statusline-engine tests.
+try {
+  const engineState = process.env.CODEX_DO_STATE_DIR || path.join(HOME, '.claude', 'state');
+  let engineText = null;
+  try { engineText = fs.readFileSync(path.join(engineState, 'engine.txt'), 'utf8'); } catch {}
+  l3 += engineSuffix(engineText, codexUsage, Number.isFinite(PACE.codexUsed3) ? PACE.codexUsed3 : 95);
+} catch {}
 try {
   const stateDir = process.env.CODEX_DO_STATE_DIR || path.join(HOME, '.claude', 'state');
   const runs = summarizeRuns(stateDir, Date.now());
@@ -543,39 +599,10 @@ try {
   if (parts.length) l3 += `${SEP}${parts.join(' ')}`;
 } catch {}
 
-// === Line 3b: OpenRouter credit + daily/weekly usage + eval model ===
+// === Line 3b: Grok account + weekly quota ===
 let l3b = '';
 try {
-  const u = JSON.parse(fs.readFileSync(OR_CACHE, 'utf8'));
-  l3b = `  ${BOLD}${LAVENDER}⚡${RESET} ${PEACH}openrouter${RESET}`;
-  // Primary gauge: the key's weekly cap — BYOK (Gemini) spend counts against it,
-  // so this is the real budget. Prepaid credits ("bal") only cover BYOK fees.
-  if (u.limitRemaining != null && u.limit > 0) {
-    const pct = Math.round((u.limitRemaining / u.limit) * 100);
-    l3b += `${SEP}${SLATE}wk${RESET} ${CLOUD}$${u.limitRemaining.toFixed(2)}/$${u.limit}${RESET} ${bar(pct)}`;
-  } else if (u.total != null) {
-    const left = Math.max(0, u.total - u.used);
-    const pct = u.total > 0 ? Math.round((left / u.total) * 100) : 0;
-    l3b += `${SEP}${CLOUD}$${left.toFixed(2)}${RESET} ${bar(pct)}`;
-  }
-  if (u.daily != null || u.byokDaily != null) {
-    const day = (u.daily || 0) + (u.byokDaily || 0);
-    l3b += `${SEP}${SLATE}today${RESET} ${CLOUD}$${day.toFixed(2)}${RESET}`;
-  }
-  // Session spend: all-time usage (credits + BYOK) minus a baseline captured the
-  // first time this session renders. Account-wide, so parallel eval runs count too.
-  if (u.allTime != null && sid) {
-    const bfile = path.join(CACHE, `or-base-${sid}.json`);
-    let sess = null;
-    try {
-      sess = Math.max(0, u.allTime - JSON.parse(fs.readFileSync(bfile, 'utf8')).base);
-    } catch {
-      try { fs.writeFileSync(bfile, JSON.stringify({ base: u.allTime })); sess = 0; } catch {}
-    }
-    if (sess != null) l3b += `${SEP}${SLATE}session${RESET} ${CLOUD}$${sess.toFixed(2)}${RESET}`;
-  }
-  const evalName = evalModel(cwd);
-  if (evalName) l3b += `${SEP}${SKY}${evalName}${RESET}`;
+  l3b = grokRow(JSON.parse(fs.readFileSync(GROK_CACHE, 'utf8')));
 } catch {}
 
 // === Line 4: workspace + branch + recent skills/MCP ===

@@ -21,14 +21,17 @@ try {
   [IO.File]::WriteAllText($spec, 'GOAL: invalid', (New-Object Text.UTF8Encoding($false)))
   $dispatcher = Join-Path $PSScriptRoot '..\bin\codex-do.ps1'
   $binBefore = $env:CODEX_DO_BIN
+  # K5e (E13): pin the engine (and keep engine.txt/state out of ~/.claude) so the real Codex quota cache never routes these calls to Grok.
+  $engineBefore = $env:CODEX_DO_ENGINE; $stateBefore = $env:CODEX_DO_STATE_DIR
   try {
+    $env:CODEX_DO_ENGINE = 'codex'; $env:CODEX_DO_STATE_DIR = Join-Path $fixture 'state'
     $env:CODEX_DO_BIN = Join-Path $fixture 'must-not-launch.exe'
     $rejection = (& powershell -NoProfile -ExecutionPolicy Bypass -File $dispatcher -SpecFile $spec 2>&1 | Out-String)
     Assert-True ($LASTEXITCODE -eq 74 -and $rejection -match 'Missing SUCCESS CRITERIA' -and $rejection -notmatch 'must-not-launch') 'real entry point exits 74 before account/Codex work'
     $null = & powershell -NoProfile -ExecutionPolicy Bypass -File $dispatcher -AllowSubAgents -NoSubAgents -SpecFile $spec 2>&1
     Assert-True ($LASTEXITCODE -eq 64) 'usage validation still precedes lint'
     Assert-True ([IO.File]::ReadAllText($spec) -ceq 'GOAL: invalid') 'dispatch does not change packet file'
-  } finally { $env:CODEX_DO_BIN = $binBefore }
+  } finally { $env:CODEX_DO_BIN = $binBefore; $env:CODEX_DO_ENGINE = $engineBefore; $env:CODEX_DO_STATE_DIR = $stateBefore }
   $sessions = Join-Path $fixture 'sessions'; $folder = Join-Path $fixture 'run'
   [void][IO.Directory]::CreateDirectory($sessions); [void][IO.Directory]::CreateDirectory($folder)
   $parent = '11111111-1111-1111-1111-111111111111'

@@ -10,7 +10,7 @@ $tempRoot = [IO.Path]::GetFullPath($env:TEMP).TrimEnd([char[]]@('\', '/'))
 $fixture = Join-Path $tempRoot ('codex-do-resume-fixture-' + [guid]::NewGuid().ToString('N'))
 $utf8 = New-Object Text.UTF8Encoding($false)
 $saved = @{}
-foreach ($name in @('CODEX_DO_STATE_DIR', 'CODEX_ACC_ROOT', 'CODEX_ACC_MAIN_HOME', 'CODEX_DO_BIN', 'CODEX_HOME', 'USERPROFILE', 'RESUME_TEST_RECORD', 'RESUME_TEST_EXIT', 'RESUME_TEST_ROLLOUT', 'RESUME_TEST_CHILD', 'CLAUDE_CODE_SESSION_ID', 'FAKE_SANDBOX')) {
+foreach ($name in @('CODEX_DO_ENGINE', 'CODEX_DO_STATE_DIR', 'CODEX_ACC_ROOT', 'CODEX_ACC_MAIN_HOME', 'CODEX_DO_BIN', 'CODEX_HOME', 'USERPROFILE', 'RESUME_TEST_RECORD', 'RESUME_TEST_EXIT', 'RESUME_TEST_ROLLOUT', 'RESUME_TEST_CHILD', 'CLAUDE_CODE_SESSION_ID', 'FAKE_SANDBOX')) {
   $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
 }
 function Assert-True($Condition, [string]$Name) {
@@ -41,6 +41,8 @@ try {
   New-Item -ItemType Directory -Path $fixture | Out-Null
   $baselineDir = Join-Path $fixture 'baseline'
   $workDir = Join-Path $fixture 'work'
+  # K5e (E13): pin the engine so the real Codex quota cache never routes this fixture to Grok; restored with $saved.
+  $env:CODEX_DO_ENGINE = 'codex'
   $env:CODEX_ACC_ROOT = Join-Path $fixture 'accounts'
   $env:CODEX_ACC_MAIN_HOME = Join-Path $fixture 'main'
   $env:USERPROFILE = Join-Path $fixture 'profile'
@@ -72,6 +74,9 @@ try {
   [IO.File]::Copy((Join-Path $bin 'codex-acc-lib.ps1'), (Join-Path $baselineDir 'codex-acc-lib.ps1'))
   $sandboxLibrary = Join-Path $bin 'codex-sandbox-lib.ps1'
   if (Test-Path -LiteralPath $sandboxLibrary) { [IO.File]::Copy($sandboxLibrary, (Join-Path $baselineDir 'codex-sandbox-lib.ps1')) }
+  # K5e (E12a): a baseline that dot-sources grok-engine-lib.ps1 unconditionally needs it beside it.
+  $grokLibrary = Join-Path $bin 'grok-engine-lib.ps1'
+  if (Test-Path -LiteralPath $grokLibrary) { [IO.File]::Copy($grokLibrary, (Join-Path $baselineDir 'grok-engine-lib.ps1')) }
 
   Write-TestFile $env:CODEX_DO_BIN @'
 @echo off

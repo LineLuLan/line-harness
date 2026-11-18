@@ -15,12 +15,13 @@ function render(template, thresholds) {
   });
 }
 
-/* Intent: pure generation shared by CLI and golden tests. Status: complete.
- * Next: none. Blockers: none. Confidence: byte comparison against original guide. */
+/* Intent: pure generation shared by CLI and golden tests; routes take the same {key} placeholders as labels
+ * (C3 names the Grok switch threshold, K5f 2026-11-18). Status: complete.
+ * Next: none. Blockers: none. Confidence: byte comparison against original guide + Grok C3 golden. */
 function generateBlocks(o) {
   return {
     quota: ['| Codex quota | Route |', '| --- | --- |',
-      ...o.quota.codexLevels.map(x => `| ${render(x.label, o.quota.thresholds)} | ${x.route} |`), '',
+      ...o.quota.codexLevels.map(x => `| ${render(x.label, o.quota.thresholds)} | ${render(x.route, o.quota.thresholds)} |`), '',
       ...o.quota.claudeRules.map(x => `- ${render(x.bullet, o.quota.thresholds)}`)].join('\n'),
     'review-tiers': ['| Tier | Layers |', '| --- | --- |', ...o.reviewTable.map(x => `| ${x[0]} | ${x[1]} |`)].join('\n')
   };
@@ -42,10 +43,11 @@ function validate(o) {
   need(r && list(r.workTypes, string) && r.workTypes.length === 7, 'routing.workTypes');
   need(r.labels && typeof r.labels === 'object' && !Array.isArray(r.labels)
     && Object.keys(r.labels).length > 0 && Object.values(r.labels).every(string), 'routing.labels');
+  // Intent: every cell is a 5-item row of known label keys; K1.C3 is no longer the STOP literal (Grok at C3).
+  // Status: complete (K5f 2026-11-18). Next: none. Blockers: none. Confidence: ontology-check tests.
   for (const k of ['K0', 'K1']) for (const c of ['C0', 'C1', 'C2', 'C3']) {
     const row = r.matrix?.[k]?.[c];
-    need(k === 'K1' && c === 'C3' ? row === 'STOP'
-      : Array.isArray(row) && row.length === 5 && row.every(id => typeof id === 'string' && Object.hasOwn(r.labels, id)), `routing.matrix.${k}.${c}`);
+    need(Array.isArray(row) && row.length === 5 && row.every(id => typeof id === 'string' && Object.hasOwn(r.labels, id)), `routing.matrix.${k}.${c}`);
   }
   need(r.layer3 && ['K0', 'K1', 'critical'].every(k => string(r.layer3[k])), 'routing.layer3');
   need(string(r.stopText) && string(r.k5Banner), 'routing text');

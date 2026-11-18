@@ -87,5 +87,31 @@ test('fixture matrix, labels, thresholds, layer3 and alerts drive behavior', t =
   assert.equal(r.route.rows[0].model, 'gpt-6-astra high');
   assert.equal(r.route.rows[5].model, 'fixture review');
   assert.equal(r.route.thresholds.codexPace2, 1.5); assert.equal(r.rules.commit, 91);
-  assert.match(r.stop.notes[0], /used >= 97%/);
+  assert.equal(r.stop.stop, false); assert.equal(r.stop.codexLevel, 'C3');
+  assert.match(r.stop.rows[0].rule, /used 99% >= 97$/);
+});
+
+/* Intent: K5f - the Hub DEFAULT copy (fallback) equals the repository ontology matrix on every cell, and an old
+ * ontology with K1.C3 = "STOP" is rejected as a whole. Status: complete. Next: none. Blockers: none.
+ * Confidence: this test (fresh child processes). */
+test('fallback DEFAULT matrix equals the ontology matrix; legacy K1.C3 STOP falls back', t => {
+  const f = fixture(t);
+  const cells = `[['K0',{claude7Used:10,claude7Pace:0.5}],['K1',{claude7Used:72,claude7Pace:0.5}]].flatMap(([k,kin]) =>
+    [['C0',{codexUsed:10,codexPace:0.5}],['C1',{codexUsed:72,codexPace:0.5}],['C2',{codexUsed:86,codexPace:0.5}],['C3',{codexUsed:96,codexPace:0.5}]]
+      .map(([c,cin]) => { const a = q.routeAdvice({...kin,...cin,claude5Used:0}); return [k+c, a.claudeLevel+a.codexLevel, a.stop, a.rows.map(r => r.model)]; }))`;
+  const run = ontology => {
+    const code = `const q = require(${JSON.stringify(path.resolve(__dirname, '../server/queries'))});
+      console.log(JSON.stringify({status:q.ontologyStatus.state, cells:${cells}}));`;
+    const r = spawnSync(process.execPath, ['-e', code], { env: { ...process.env, USERPROFILE: f.root, LINE_HUB_ONTOLOGY: ontology }, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr); return JSON.parse(r.stdout);
+  };
+  const loaded = run(source), fallback = run(path.join(f.root, 'missing'));
+  assert.equal(loaded.status, 'loaded'); assert.equal(fallback.status, 'fallback');
+  assert.deepEqual(fallback.cells, loaded.cells);
+  for (const [want, got, stop] of loaded.cells) { assert.equal(got, want); assert.equal(stop, false); }
+  const grok = loaded.cells.filter(x => x[0].endsWith('C3')).map(x => x[3].slice(0, 5));
+  assert.deepEqual(grok, [0, 1].map(() => [f.o.routing.labels.grok, f.o.routing.labels.grok, f.o.routing.labels.grokImp,
+    f.o.routing.labels.grok, f.o.routing.labels.fable]));
+  f.o.routing.matrix.K1.C3 = 'STOP'; f.save();
+  assert.equal(run(f.file).status, 'fallback');
 });

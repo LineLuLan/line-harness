@@ -136,7 +136,10 @@ $originalAccounts = $env:CODEX_ACC_ROOT
 $originalMainHome = $env:CODEX_ACC_MAIN_HOME
 $originalReviewLog = $env:CODEX_REVIEW_LOG
 $originalStateDir = $env:CODEX_DO_STATE_DIR
+$originalEngine = $env:CODEX_DO_ENGINE
 try {
+  # K5e (E13): pin the engine so the real Codex quota cache never routes codex-do to Grok; restored below.
+  $env:CODEX_DO_ENGINE = 'codex'
   $env:CODEX_DO_STATE_DIR = Join-Path $fixtureRoot 'state'
   $env:CODEX_REVIEW_LOG = Join-Path $fixtureRoot 'logs\reviews.jsonl'
   $env:CODEX_ACC_ROOT = Join-Path $fixtureRoot 'accounts'
@@ -775,6 +778,7 @@ if (mode === 'unknown') {
   $env:CODEX_ACC_MAIN_HOME = $originalMainHome
   $env:CODEX_REVIEW_LOG = $originalReviewLog
   $env:CODEX_DO_STATE_DIR = $originalStateDir
+  $env:CODEX_DO_ENGINE = $originalEngine
   $resolvedFixture = [IO.Path]::GetFullPath($fixtureRoot)
   $expectedParent = [IO.Path]::GetFullPath($env:TEMP).TrimEnd('\')
   if ((Split-Path -Parent $resolvedFixture) -ne $expectedParent -or (Split-Path -Leaf $resolvedFixture) -notlike 'codex-review-fixture-*') { throw 'Unsafe review fixture cleanup path' }

@@ -1,6 +1,6 @@
 /* Intent: H8a routeAdvice(): today's model routing from the live quota pace (CLAUDE.md "Route by quota pace").
  *   Every matrix cell, the level boundaries (Codex 1.0 / 1.3 / 70 / 85 / 95, Claude 7-day 1.2 / 70, 5-hour 80),
- *   STOP, null / early pace and the all-null input; routeInputOf() maps live quota rows to the input.
+ *   no STOP (C3 = Grok since K5f), null / early pace and the all-null input; routeInputOf() maps live quota rows to the input.
  * Status: written before the implementation (red run in the H8a report). Next: none. Blockers: none.
  * Confidence: these tests. */
 'use strict';
@@ -14,7 +14,7 @@ const LUNA = 'gpt-6-luna max then gpt-6-sol ultra', SB_COND = 'gpt-6-sol high if
 const OPUS = 'Opus subagent', EXPLORE = 'Claude Explore subagent', FABLE = 'Fable subagent', L2_ASTRA = 'gpt-6-astra';
 const L3I_K0 = 'Fable 5.2 high via /model claude-fable-5-2', L3I_K1 = 'Opus supervisor (Fable only for Critical)', L3C = 'Fable 5.2 high via /model claude-fable-5-2';
 const WORK = ['Standard-A', 'Standard-B', 'Important/Critical worker', 'Exploration', 'Layer-2 review', 'Layer-3 Important', 'Layer-3 Critical'];
-const STOP = 'No new packets; report to Line';
+const GROK = 'grok-4.7-build-fast xhigh (codex-do auto)', GROK_IMP = 'grok-4.7-build-fast xhigh; Critical: Opus subagent';
 
 // One input per level: the Codex and Claude values that produce exactly that level.
 const CODEX = { C0: { codexPace: 0.8, codexUsed: 40 }, C1: { codexPace: 1.1, codexUsed: 50 }, C2: { codexPace: 1.5, codexUsed: 60 }, C3: { codexPace: 0.9, codexUsed: 96 } };
@@ -26,10 +26,11 @@ const MATRIX = {
   'K0 C0': [SOL, ASTRA, ASTRA, LUNA, L2_ASTRA, L3I_K0, L3C],
   'K0 C1': [SOL, SB_COND, ASTRA, EXPLORE, FABLE, L3I_K0, L3C],
   'K0 C2': [OPUS, OPUS, ASTRA_NR, EXPLORE, FABLE, L3I_K0, L3C],
-  'K0 C3': [OPUS, OPUS, OPUS, EXPLORE, FABLE, L3I_K0, L3C],
+  'K0 C3': [GROK, GROK, GROK_IMP, GROK, FABLE, L3I_K0, L3C],
   'K1 C0': [SOL, ASTRA, ASTRA, LUNA, L2_ASTRA, L3I_K1, L3C],
   'K1 C1': [SOL, SB_COND, ASTRA, EXPLORE, L2_ASTRA, L3I_K1, L3C],
-  'K1 C2': [SOL, SOL, ASTRA_NR, EXPLORE, L2_ASTRA, L3I_K1, L3C]
+  'K1 C2': [SOL, SOL, ASTRA_NR, EXPLORE, L2_ASTRA, L3I_K1, L3C],
+  'K1 C3': [GROK, GROK, GROK_IMP, GROK, FABLE, L3I_K1, L3C]
 };
 
 for (const [cell, want] of Object.entries(MATRIX)) {
@@ -45,10 +46,13 @@ for (const [cell, want] of Object.entries(MATRIX)) {
   });
 }
 
-test('routeAdvice matrix K1 C3: STOP on every row', () => {
-  const a = advice('K1', 'C3');
-  assert.equal(a.stop, true); assert.equal(a.codexLevel, 'C3'); assert.equal(a.claudeLevel, 'K1');
-  assert.deepEqual(models(a), WORK.map(() => STOP));
+// K5f worked example (Line 2026-11-18): Codex 96%, Claude 72% -> K1 C3 -> Grok rows, layer 2 Fable, no STOP banner.
+test('routeAdvice K1 C3 worked example: Grok workers, Fable layer 2, no STOP note', () => {
+  const a = q.routeAdvice({ codexPace: 0.9, codexUsed: 96, claude7Pace: 0.9, claude7Used: 72, claude5Used: 10 });
+  assert.equal(a.stop, false); assert.equal(a.codexLevel, 'C3'); assert.equal(a.claudeLevel, 'K1');
+  assert.deepEqual(models(a), MATRIX['K1 C3']);
+  assert.ok(!a.notes.some(n => /STOP|No new packets/.test(n)), a.notes.join(' | '));
+  assert.match(a.rows[4].rule, /^Codex C3: used 96% >= 95/);
 });
 
 test('routeAdvice: each rule names the level that produced it', () => {
@@ -85,7 +89,7 @@ test('routeAdvice boundaries: Claude 7-day pace 1.2 / used 70; 5-hour 80', () =>
   assert.deepEqual(models(at80), MATRIX['K0 C0'], 'rows are still shown');
 });
 
-test('routeAdvice STOP: only C3 with K1; both sides over 85 retain K1 C2', () => {
+test('routeAdvice: no stop rule; both sides over 85 retain K1 C2; C3 + K1 + K5 keeps Grok rows', () => {
   const s = (codexUsed, claude7Used) => q.routeAdvice({ codexPace: 0.5, codexUsed, claude7Pace: 0.5, claude7Used, claude5Used: 0 });
   const at85 = s(85, 85);
   assert.equal(at85.stop, false); assert.equal(at85.codexLevel, 'C2'); assert.equal(at85.claudeLevel, 'K1');
@@ -94,10 +98,10 @@ test('routeAdvice STOP: only C3 with K1; both sides over 85 retain K1 C2', () =>
   assert.equal(over.stop, false);
   assert.deepEqual(models(over), MATRIX['K1 C2']);
   assert.ok(!over.notes.some(n => /No new packets/.test(n)));
-  // STOP overrides K5 rows too, and K5 still asks for the handoff.
+  // C3 + K1 is a normal Grok row set; K5 still asks for the handoff.
   const both = q.routeAdvice({ codexPace: 0.5, codexUsed: 96, claude7Pace: 1.5, claude7Used: 10, claude5Used: 90 });
-  assert.equal(both.stop, true); assert.equal(both.handoff, true);
-  assert.deepEqual(models(both), WORK.map(() => STOP));
+  assert.equal(both.stop, false); assert.equal(both.handoff, true);
+  assert.deepEqual(models(both), MATRIX['K1 C3']);
 });
 
 test('routeAdvice: null pace counts as under every pace threshold; the used % still applies', () => {

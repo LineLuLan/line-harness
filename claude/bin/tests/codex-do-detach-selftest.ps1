@@ -14,7 +14,7 @@ $fixture = Join-Path $tempRoot ('codex-do-detach-fixture-' + [guid]::NewGuid().T
 $utf8 = New-Object Text.UTF8Encoding($false)
 $saved = @{}
 $launchers = New-Object System.Collections.ArrayList
-foreach ($name in @('CODEX_DO_STATE_DIR', 'CODEX_ACC_ROOT', 'CODEX_ACC_MAIN_HOME', 'CODEX_DO_BIN', 'CODEX_HOME', 'NODE_OPTIONS', 'FAKE_SANDBOX', 'CODEX_DO_NOTIFY', 'CODEX_DO_NO_FALLBACK', 'CODEX_DO_STALE_SECONDS')) {
+foreach ($name in @('CODEX_DO_ENGINE', 'CODEX_DO_STATE_DIR', 'CODEX_ACC_ROOT', 'CODEX_ACC_MAIN_HOME', 'CODEX_DO_BIN', 'CODEX_HOME', 'NODE_OPTIONS', 'FAKE_SANDBOX', 'CODEX_DO_NOTIFY', 'CODEX_DO_NO_FALLBACK', 'CODEX_DO_STALE_SECONDS')) {
   $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
 }
 function Assert-True($Condition, [string]$Name) {
@@ -97,6 +97,8 @@ function Assert-Disabled($Record, [bool]$Expected, [string]$Name) {
 try {
   New-Item -ItemType Directory -Path $fixture | Out-Null
   $workDir = Join-Path $fixture 'work space'
+  # K5e (E13): pin the engine so the real Codex quota cache never routes this fixture to Grok; restored with $saved.
+  $env:CODEX_DO_ENGINE = 'codex'
   $env:CODEX_DO_STATE_DIR = Join-Path $fixture 'state'
   $env:CODEX_ACC_ROOT = Join-Path $fixture 'accounts'
   $env:CODEX_ACC_MAIN_HOME = Join-Path $fixture 'main'
