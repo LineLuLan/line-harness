@@ -1,7 +1,7 @@
 {
   "$comment": "Line Harness ontology: the single source for routing, quota, review and permission rules. Consumers: Line Hub (routeAdvice, alert RULES), CLAUDE.md generated blocks, ontology-check sensor. Edit here, then run ontology-check --write. Owner: Line. Values copied from the live system on 2026-11-15.",
-  "version": "1.4.0",
-  "updated": "2026-11-18",
+  "version": "1.5.1",
+  "updated": "2026-11-20",
   "defectCategories": [
     {
       "id": "contradiction",
@@ -446,15 +446,15 @@
       {
         "id": "sol",
         "side": "codex",
-        "name": "GPT-6 Sol",
-        "slug": "gpt-6-sol",
+        "name": "GPT-6.2 Sol",
+        "slug": "gpt-6.2-sol",
         "defaultEffort": "high"
       },
       {
         "id": "astra",
         "side": "codex",
-        "name": "GPT-6 Astra",
-        "slug": "gpt-6-astra",
+        "name": "GPT-6.2 Astra",
+        "slug": "gpt-6.2-astra",
         "defaultEffort": "high",
         "fallbackEffort": "xhigh"
       },
@@ -508,7 +508,7 @@
           2,
           3
         ],
-        "layer2": "gpt-6-astra (mandatory) + a Fable subagent",
+        "layer2": "gpt-6.2-astra (mandatory) + a Fable subagent",
         "preRead": "Fable subagent reads the packet before dispatch"
       },
       {
@@ -519,7 +519,7 @@
           2,
           3
         ],
-        "layer2": "gpt-6-astra (mandatory) + a Fable 5.2 subagent",
+        "layer2": "gpt-6.2-astra (mandatory) + a Fable 5.2 subagent",
         "preRead": "Fable 5.2",
         "approval": "Line approves in writing"
       },
@@ -607,7 +607,7 @@
       {
         "id": "C1",
         "test": "pace > codexPace1 (to codexPace2) or used codexUsed1..codexUsed2-1",
-        "route": "Standard-B with <= 3 files and a runnable VALIDATE goes to `gpt-6-sol` high. No Luna exploration (Claude Explore subagent). Layer 2 = Fable subagent.",
+        "route": "Standard-B with <= 3 files and a runnable VALIDATE goes to `gpt-6.2-sol` high. No Codex exploration (Claude Explore subagent). Layer 2 = Fable subagent.",
         "label": "Pace > {codexPace1} to {codexPace2}, used {codexUsed1}-{codexUsed2-1}%"
       },
       {
@@ -633,9 +633,9 @@
       {
         "id": "BOTH",
         "test": "K1 and Codex not C3",
-        "text": "Standard-A and Standard-B go to gpt-6-sol high and are never deferred.",
+        "text": "Standard-A and Standard-B go to gpt-6.2-sol high and are never deferred.",
         "source": "Line 2026-11-15",
-        "bullet": "Both sides stressed (Claude rule above active and Codex not >= {codexUsed3}%): Standard-A and Standard-B go to `gpt-6-sol` high and are never deferred (Line, 2026-11-15)."
+        "bullet": "Both sides stressed (Claude rule above active and Codex not >= {codexUsed3}%): Standard-A and Standard-B go to `gpt-6.2-sol` high and are never deferred (Line, 2026-11-15)."
       },
       {
         "id": "STOP",
@@ -670,15 +670,15 @@
       "Layer-3 Critical"
     ],
     "labels": {
-      "sol": "gpt-6-sol high",
-      "astra": "gpt-6-astra high",
-      "astraNr": "gpt-6-astra high (no resumes)",
-      "luna": "gpt-6-luna max then gpt-6-sol ultra",
-      "sbCond": "gpt-6-sol high if <=3 files and runnable VALIDATE, else gpt-6-astra high",
+      "sol": "gpt-6.2-sol high",
+      "astra": "gpt-6.2-astra high",
+      "astraNr": "gpt-6.2-astra high (no resumes)",
+      "luna": "gpt-6.2-sol high then gpt-6.2-astra xhigh",
+      "sbCond": "gpt-6.2-sol high if <=3 files and runnable VALIDATE, else gpt-6.2-astra high",
       "opus": "Opus subagent",
       "explore": "Claude Explore subagent",
       "fable": "Fable subagent",
-      "l2astra": "gpt-6-astra",
+      "l2astra": "gpt-6.2-astra",
       "grok": "grok-4.7-build-fast xhigh (codex-do auto)",
       "grokImp": "grok-4.7-build-fast xhigh; Critical: Opus subagent"
     },
@@ -750,7 +750,7 @@
       "critical": "Fable 5.2 high via /model claude-fable-5-2"
     },
     "stopText": "No new packets; report to Line",
-    "fallback": "gpt-6-astra xhigh, one attempt, then replan. Never start at xhigh.",
+    "fallback": "gpt-6.2-astra xhigh, one attempt, then replan. Never start at xhigh.",
     "k5Banner": "Claude 5-hour >= {claude5Used}%: finish the current check, update the handoff, pause Claude work until the window resets"
   },
   "alerts": {
@@ -1086,7 +1086,7 @@
     ],
     [
       "Important (multi-file, API contract, shared module)",
-      "1 + 2 (`gpt-6-astra`, mandatory) + a Fable subagent + 3"
+      "1 + 2 (`gpt-6.2-astra`, mandatory) + a Fable subagent + 3"
     ],
     [
       "Critical (security, payment, auth, migration)",

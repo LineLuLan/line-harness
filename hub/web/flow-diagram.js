@@ -131,7 +131,7 @@ export function FlowDiagram() {
       <${Wire} d="M898,125 H930 V84 H1320 V95" c=${C.codex} main />
       ${[990, 1100, 1210].map(x => html`<${Wire} d=${`M${x},84 V95`} c=${C.codex} main />`)}
       <${Note} x=${1155} y=${77} t="dispatch by tier + quota" c=${C.codex} />
-      ${[[990, C.codex, 'GPT-6 Sol', 'Standard-A'], [1100, C.codex, 'GPT-6 Astra', 'Std-B · Important+'], [1210, C.codex, 'GPT-6 Luna', 'exploration'], [1320, C.claude, 'Opus subagent', 'when Codex runs hot']].map(([x, c, t, s]) => html`
+      ${[[990, C.codex, 'GPT-6.2 Sol', 'Standard-A'], [1100, C.codex, 'GPT-6.2 Astra', 'Std-B · Important+'], [1210, C.codex, 'Sol then Astra', 'exploration'], [1320, C.claude, 'Opus subagent', 'when Codex runs hot']].map(([x, c, t, s]) => html`
         <${Hex} x=${x} y=${125} r=${28} c=${c} icon="net" dashed=${c === C.claude} /><${Cap} x=${x} y=${174} t=${t} s=${s} />`)}
       <${Wire} d="M1348,125 H1422 V214 H58 V335 H90" c=${C.codex} main />
 

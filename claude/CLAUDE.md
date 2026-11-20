@@ -50,11 +50,13 @@ Shell: long or multi-line commands go through the PowerShell tool or a script fi
 | --- | --- |
 | Planning, packets, verdicts, ship, memory, Line-facing replies | Opus 5.5 high (session default) |
 | Layer-3 verification at Important and Critical, the Fable review subagent, the pre-dispatch packet read, hard root-cause, architecture | Fable 5.2 high (`/model claude-fable-5-2`). The Agent tool only takes the `fable` alias; on 2026-11-14 a `fable` subagent reported itself as `claude-fable-5-2` (model self-report), so Fable subagents already run 5.2 - re-check if the alias changes |
-| Standard-A (1-2 files, runnable VALIDATE, single-branch logic, worked examples) | `gpt-6-sol` high |
-| Standard-B (3+ files, long command chains, repo discovery, vague VALIDATE, prior Sol STOP/FAIL), Important, Critical | `gpt-6-astra` high |
-| Exploration | `gpt-6-luna` max first, then `gpt-6-sol` ultra for synthesis |
-| Fallback after a failed high attempt | `gpt-6-astra` xhigh, one attempt, then replan |
+| Standard-A (1-2 files, runnable VALIDATE, single-branch logic, worked examples) | `gpt-6.2-sol` high |
+| Standard-B (3+ files, long command chains, repo discovery, vague VALIDATE, prior Sol STOP/FAIL), Important, Critical | `gpt-6.2-astra` high |
+| Exploration | `gpt-6.2-sol` high to search, then `gpt-6.2-astra` xhigh for synthesis (web or X: Claude Explore subagent or Grok). gpt-6-luna is no longer a worker (2026-11-20) |
+| Fallback after a failed high attempt | `gpt-6.2-astra` xhigh, one attempt, then replan |
 | Codex used >= 95% (auto) | `grok-4.7-build-fast` xhigh via `codex-do.ps1` (auto; `-Engine grok` forces it; Critical stays Opus subagent) |
+
+Benchmark 2026-11-20: gpt-6.2-astra replaced gpt-6-astra, gpt-6.2-sol replaced gpt-6-sol (see harness-reference).
 
 Never start at xhigh. Write the tier into the packet header before dispatch. The `gpt-5.6-*` line is retired.
 
@@ -66,12 +68,12 @@ Pace = used % / % of the window elapsed. Check pace at session start and before 
 | Codex quota | Route |
 | --- | --- |
 | Pace <= 1.0 and used < 70% | Normal routing table. |
-| Pace > 1.0 to 1.3, used 70-84% | Standard-B with <= 3 files and a runnable VALIDATE goes to `gpt-6-sol` high. No Luna exploration (Claude Explore subagent). Layer 2 = Fable subagent. |
+| Pace > 1.0 to 1.3, used 70-84% | Standard-B with <= 3 files and a runnable VALIDATE goes to `gpt-6.2-sol` high. No Codex exploration (Claude Explore subagent). Layer 2 = Fable subagent. |
 | Pace > 1.3 or used 85-94% | Codex for Important/Critical. Standard work goes to an Opus subagent with the same packet (if Claude is stressed too, see below). No resumes. |
 | Used >= 95% | No Codex. Grok worker via codex-do (auto at used >= 95%): Standard, Important and Exploration; Critical worker = Opus subagent; layer 2 = Grok review (codex-review.ps1 auto) + Fable subagent; ledger `worker=grok-4.7-build-fast`. |
 
 - Claude 7-day pace > 1.2 or used >= 70%: no Opus subagent workers (except the Critical worker when Codex used >= 95%); layer 2 = Astra (Fable subagent when Codex used >= 95%); Fable otherwise only for Critical layer 3; supervisor edits <= 20 lines.
-- Both sides stressed (Claude rule above active and Codex not >= 95%): Standard-A and Standard-B go to `gpt-6-sol` high and are never deferred (Line, 2026-11-15).
+- Both sides stressed (Claude rule above active and Codex not >= 95%): Standard-A and Standard-B go to `gpt-6.2-sol` high and are never deferred (Line, 2026-11-15).
 - Codex used >= 95% while the Claude rule is active: Grok workers continue; layer 2 = Fable subagent; report to Line.
 - Claude 5-hour used >= 80%: finish the current check, update the handoff, pause Claude work until the window resets.
 - Codex desktop and CLI sessions count against the budget. One session over 50M tokens: stop and report to Line.
@@ -90,7 +92,7 @@ The implementer never grades itself. Layers: (1) deterministic gates, (2) fresh-
 | --- | --- |
 | Skip (under ~20 lines of config, typo, docs) | 3 |
 | Standard-A / Standard-B | 1 + 3 (`codex-review.ps1 -SkipModel`); layer 2 optional over ~150 lines, logged |
-| Important (multi-file, API contract, shared module) | 1 + 2 (`gpt-6-astra`, mandatory) + a Fable subagent + 3 |
+| Important (multi-file, API contract, shared module) | 1 + 2 (`gpt-6.2-astra`, mandatory) + a Fable subagent + 3 |
 | Critical (security, payment, auth, migration) | Important + Line approves in writing |
 <!-- ontology:review-tiers:end -->
 

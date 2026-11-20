@@ -66,7 +66,7 @@ test('env missing or malformed never tries another path; incomplete shapes fall 
     if (value !== null) fs.writeFileSync(f.file, value);
     const r = f.run(value === null ? path.join(f.root, 'missing') : f.file);
     assert.equal(r.status.state, 'fallback'); assert.equal(r.status.version, null); assert.ok(r.status.error);
-    assert.equal(r.route.rows[0].model, 'gpt-6-sol high');
+    assert.equal(r.route.rows[0].model, 'gpt-6.2-sol high');
   }
   for (const mutate of [o => delete o.quota.thresholds.codexPace2,
     o => o.routing.matrix.K0.C0 = ['unknown', 'sol', 'sol', 'sol', 'sol'],
@@ -74,7 +74,7 @@ test('env missing or malformed never tries another path; incomplete shapes fall 
     o => o.alerts.commitPct = '90', o => o.routing.k5Banner = '{unknown}']) {
     const o = JSON.parse(fs.readFileSync(source)); mutate(o); o.routing.labels.sol = 'must not leak';
     fs.writeFileSync(f.file, JSON.stringify(o));
-    const r = f.run(); assert.equal(r.status.state, 'fallback'); assert.equal(r.route.rows[0].model, 'gpt-6-sol high');
+    const r = f.run(); assert.equal(r.status.state, 'fallback'); assert.equal(r.route.rows[0].model, 'gpt-6.2-sol high');
   }
 });
 
@@ -84,7 +84,7 @@ test('fixture matrix, labels, thresholds, layer3 and alerts drive behavior', t =
   f.o.quota.thresholds.codexPace2 = 1.5; f.o.quota.thresholds.codexUsed3 = 97;
   f.o.alerts.commitPct = 91; f.save();
   const r = f.run(); assert.equal(r.status.state, 'loaded');
-  assert.equal(r.route.rows[0].model, 'gpt-6-astra high');
+  assert.equal(r.route.rows[0].model, 'gpt-6.2-astra high');
   assert.equal(r.route.rows[5].model, 'fixture review');
   assert.equal(r.route.thresholds.codexPace2, 1.5); assert.equal(r.rules.commit, 91);
   assert.equal(r.stop.stop, false); assert.equal(r.stop.codexLevel, 'C3');

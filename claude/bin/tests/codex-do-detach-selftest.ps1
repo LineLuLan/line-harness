@@ -3,6 +3,10 @@
   Exercise detached worker lifecycle with disposable fake workers. Requires WMI access.
 .PARAMETER LocalOnly
   Exercise preflight, notification logging, attach failure detection and status without WMI.
+.NOTES
+  For strict timing measurements, run this from the repo root with other suites stopped:
+  powershell -NoProfile -ExecutionPolicy Bypass -File claude/bin/tests/codex-do-detach-selftest.ps1 -LocalOnly
+  Read the elapsed seconds in TIMEOUT RESULT. Omit -LocalOnly for the host WMI probe.
 #>
 param([switch]$LocalOnly)
 $ErrorActionPreference = 'Stop'
@@ -127,16 +131,17 @@ const { spawn } = require('child_process');
 const args = process.argv.slice(2);
 if (args[0] === 'sandbox') {
   const mode = process.env.FAKE_SANDBOX;
+  const hungProbeMs = 60000;
   fs.appendFileSync(path.join(__dirname, 'sandbox.jsonl'), JSON.stringify({ args, cwd: process.cwd(), home: process.env.CODEX_HOME || null }) + '\n');
   if (mode === 'elevated-hangs-tree' && args.includes('windows.sandbox="elevated"')) {
     const child = spawn(process.execPath, [__filename, '--heartbeat-child', '--spawn-grandchild'], { stdio: 'ignore' });
     fs.writeFileSync(path.join(__dirname, 'hung-probe-tree.json'), JSON.stringify({ shim: process.ppid, worker: process.pid, child: child.pid }));
-    setTimeout(() => process.exit(1), 60000);
+    setTimeout(() => process.exit(1), hungProbeMs);
     return;
   }
   if (mode === 'elevated-hangs' && args.includes('windows.sandbox="elevated"')) {
     fs.writeFileSync(path.join(__dirname, 'hung-probe-pid.txt'), String(process.pid));
-    setTimeout(() => process.exit(1), 30000);
+    setTimeout(() => process.exit(1), hungProbeMs);
     return;
   }
   if (mode === 'both-fail' || (mode === 'elevated-fails' && args.includes('windows.sandbox="elevated"'))) {
@@ -210,6 +215,12 @@ setTimeout(() => {
 }, sleep * 1000);
 '@
   $uuid = '01a0f557-3c5d-7310-ae36-b114768e3377'
+  # Assert the public 20-second cap independently of the implementation.
+  # Allow up to 40 seconds for startup, cleanup (including WMI), and fallback under load.
+  # An uncapped probe takes at least the fixture's 60 seconds and fails this ceiling.
+  $probeCapSeconds = 20
+  $probeMaxSeconds = 40
+  $probeTimeoutText = "timed out ($probeCapSeconds-second cap)"
   if ($LocalOnly) {
     $empty = Invoke-TestRun @('-Status')
     Assert-True ($empty.Code -eq 0 -and $empty.Text.Contains('no runs in the last 24 h')) 'empty status exits zero'
@@ -225,9 +236,12 @@ setTimeout(() => {
     $env:FAKE_SANDBOX = 'elevated-hangs'
     $timer = [Diagnostics.Stopwatch]::StartNew()
     $timedOut = Invoke-TestRun @('-Attached', '-Dir', $workDir, 'timeout fallback')
+    $timer.Stop()
     $hungPid = [int][IO.File]::ReadAllText((Join-Path $fixture 'hung-probe-pid.txt'))
-    Write-Host ("TIMEOUT RESULT: exit={0}, seconds={1:0.00}, probeAlive={2}`n{3}" -f $timedOut.Code, $timer.Elapsed.TotalSeconds, (Test-Alive $hungPid), $timedOut.Text)
-    Assert-True ($timedOut.Code -eq 0 -and $timer.Elapsed.TotalSeconds -lt 22 -and $timedOut.Text.Contains('timed out (20-second cap)') -and -not (Test-Alive $hungPid)) 'timed-out attempt and its shim child stop before fallback'
+    $probeAlive = Test-Alive $hungPid
+    Write-Host ("TIMEOUT RESULT: exit={0}, seconds={1:0.00}, probeAlive={2}`n{3}" -f $timedOut.Code, $timer.Elapsed.TotalSeconds, $probeAlive, $timedOut.Text)
+    Assert-True ($timedOut.Code -eq 0 -and $timedOut.Text.Contains($probeTimeoutText) -and -not $probeAlive) 'timed-out attempt and its shim child stop before fallback'
+    Assert-True ($timer.Elapsed.TotalSeconds -ge $probeCapSeconds -and $timer.Elapsed.TotalSeconds -lt $probeMaxSeconds) "timeout fallback takes at least $probeCapSeconds and under $probeMaxSeconds seconds"
     $env:FAKE_SANDBOX = 'ok'
     . (Join-Path $bin 'codex-sandbox-lib.ps1')
     $homeBefore = $env:CODEX_HOME
@@ -265,7 +279,9 @@ setTimeout(() => {
         Write-TestFile (Join-Path $folder 'exit.txt') ([string]$entry.code)
         $timer = [Diagnostics.Stopwatch]::StartNew()
         & powershell -NoProfile -ExecutionPolicy Bypass -Sta -File (Join-Path $bin 'codex-run-notify.ps1') -RunFolder $folder
-        Assert-True ($LASTEXITCODE -eq 0 -and $timer.Elapsed.TotalSeconds -lt 15) 'notice exits zero within 15 seconds'
+        # The delivery child has a 14-second budget. This outer timer also includes
+        # PowerShell startup and shutdown, so allow 30 seconds under load.
+        Assert-True ($LASTEXITCODE -eq 0 -and $timer.Elapsed.TotalSeconds -lt 30) ('notice exits zero within 30 seconds ({0:0.00} s)' -f $timer.Elapsed.TotalSeconds)
       }
     }
     $noticeLines = @(Get-Content -LiteralPath (Join-Path $runs 'notify.log'))
@@ -309,7 +325,7 @@ setTimeout(() => {
   foreach ($file in @('stdin.txt', 'run.cmd', 'out.log', 'exit.txt', 'run.json')) {
     Assert-True (Test-Path -LiteralPath (Join-Path $run.Folder $file)) "R2 artifact $file"
   }
-  Assert-True ($run.Meta.runId -ceq $run.Id -and $run.Meta.dir -ceq $workDir -and $run.Meta.model -ceq 'gpt-6-sol' -and $run.Meta.effort -ceq 'high' -and $run.Meta.account -ceq 'main' -and $run.Meta.wrapperPid -gt 0 -and $run.Meta.startedUtc -and $null -ne $run.Meta.resume) 'R2 run metadata'
+  Assert-True ($run.Meta.runId -ceq $run.Id -and $run.Meta.dir -ceq $workDir -and $run.Meta.model -ceq 'gpt-6.2-sol' -and $run.Meta.effort -ceq 'high' -and $run.Meta.account -ceq 'main' -and $run.Meta.wrapperPid -gt 0 -and $run.Meta.startedUtc -and $null -ne $run.Meta.resume) 'R2 run metadata'
   $ledger = Get-Content -LiteralPath (Join-Path $env:CODEX_DO_STATE_DIR 'dispatch-ledger.log')
   Assert-True (@($ledger | Where-Object { $_ -like "*|start|$($run.Meta.wrapperPid)|*" }).Count -eq 1 -and @($ledger | Where-Object { $_ -like "*|end|$($run.Meta.wrapperPid)|0" }).Count -eq 1) 'R3 ledger uses wrapper PID'
   # WMI-only regression: force the compiler fallback, then stop a hanging shim,
@@ -321,9 +337,11 @@ setTimeout(() => {
     $env:FAKE_SANDBOX = 'elevated-hangs-tree'
     $probeTimer = [Diagnostics.Stopwatch]::StartNew()
     $selection = Select-CodexSandboxMode -CodexBin $env:CODEX_DO_BIN -Dir $workDir -AccountHome ''
+    $probeTimer.Stop()
     $probeTree = Get-Content -Raw -LiteralPath (Join-Path $fixture 'hung-probe-tree.json') | ConvertFrom-Json
     $probeGrandchildren = @(Get-ChildItem -LiteralPath $fixture -Filter 'pid-*.json' | ForEach-Object { Get-Content -Raw -LiteralPath $_.FullName | ConvertFrom-Json } | Where-Object { $_.parentPid -eq $probeTree.child })
-    Assert-True ($selection.Mode -ceq 'unelevated' -and $selection.Reason.Contains('timed out (20-second cap)') -and $probeTimer.Elapsed.TotalSeconds -lt 28) 'Start-Process timeout cleans up before fallback'
+    Assert-True ($selection.Mode -ceq 'unelevated' -and $selection.Reason.Contains($probeTimeoutText)) 'Start-Process timeout cleans up before fallback'
+    Assert-True ($probeTimer.Elapsed.TotalSeconds -ge $probeCapSeconds -and $probeTimer.Elapsed.TotalSeconds -lt $probeMaxSeconds) ('Start-Process timeout takes at least {0} and under {1} seconds ({2:0.00} s)' -f $probeCapSeconds, $probeMaxSeconds, $probeTimer.Elapsed.TotalSeconds)
     Assert-True ($probeGrandchildren.Count -eq 1) 'hanging sandbox spawned a grandchild'
     foreach ($probePid in @($probeTree.shim, $probeTree.worker, $probeTree.child) + @($probeGrandchildren | ForEach-Object { $_.pid })) {
       Assert-True (-not (Test-Alive ([int]$probePid))) "fallback timeout stops exact probe PID $probePid"

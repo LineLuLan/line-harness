@@ -22,6 +22,10 @@ function Write-TestFile([string]$Path, [string]$Content) {
 }
 function Invoke-TestRun([string]$Script, [string[]]$Arguments) {
   $Arguments = @(ConvertTo-SelftestDispatchArguments -Arguments $Arguments -Folder $fixture)
+  # HEAD may predate the model upgrade. The current wrapper must select this model without a flag.
+  if ($Script -eq $baselineScript -and $Arguments -notcontains '-Model') {
+    $Arguments = @('-Model', $expectedDefaultModel) + $Arguments
+  }
   if ($Script -eq (Join-Path $bin 'codex-do.ps1')) { $Arguments = @('-Attached', '-NoRamCheck') + $Arguments }
   $lines = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $Script @Arguments 2>&1)
   return [pscustomobject]@{ Code = $LASTEXITCODE; Text = ($lines -join "`n") }
@@ -63,6 +67,7 @@ try {
   $baselineLines = @(& git -C $repo show ('HEAD:' + $gitPrefix + 'bin/codex-do.ps1'))
   if ($LASTEXITCODE -ne 0 -or $baselineLines.Count -eq 0) { throw 'SELFTEST FAIL: git baseline unavailable' }
   $baselineScript = Join-Path $baselineDir 'codex-do.ps1'
+  $expectedDefaultModel = 'gpt-6.2-sol'
   # HEAD now defaults to detached mode; this fixture compares the Attached transport.
   $baselineText = (($baselineLines -join "`n") + "`n").Replace('[switch]$Attached,', '[switch]$Attached = $true,')
   Write-TestFile $baselineScript $baselineText
@@ -197,7 +202,7 @@ if (process.env.RESUME_TEST_ROLLOUT === '1') {
   $missing = Invoke-TestRun $script @('-Dir', $workDir, '-Resume', $uuid, 'defaults')
   Assert-True ($missing.Text.Contains('resume: no prior run found; using defaults')) 'resume reports absent metadata'
   $record = Read-Record
-  Assert-True ($record.Args[4] -ceq 'gpt-6-sol' -and $record.Args -contains 'model_reasoning_effort=high') 'unmatched resume retains defaults'
+  Assert-True ($record.Args[4] -ceq $expectedDefaultModel -and $record.Args -contains 'model_reasoning_effort=high') 'unmatched resume retains defaults'
   $runs = Join-Path $env:CODEX_DO_STATE_DIR 'runs'
   $fixtureRunNumber = 0
   foreach ($entry in @(

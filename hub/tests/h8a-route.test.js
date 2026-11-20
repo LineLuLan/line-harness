@@ -9,9 +9,9 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const q = require('../server/queries');
 
-const SOL = 'gpt-6-sol high', ASTRA = 'gpt-6-astra high', ASTRA_NR = 'gpt-6-astra high (no resumes)';
-const LUNA = 'gpt-6-luna max then gpt-6-sol ultra', SB_COND = 'gpt-6-sol high if <=3 files and runnable VALIDATE, else gpt-6-astra high';
-const OPUS = 'Opus subagent', EXPLORE = 'Claude Explore subagent', FABLE = 'Fable subagent', L2_ASTRA = 'gpt-6-astra';
+const SOL = 'gpt-6.2-sol high', ASTRA = 'gpt-6.2-astra high', ASTRA_NR = 'gpt-6.2-astra high (no resumes)';
+const LUNA = 'gpt-6.2-sol high then gpt-6.2-astra xhigh', SB_COND = 'gpt-6.2-sol high if <=3 files and runnable VALIDATE, else gpt-6.2-astra high';
+const OPUS = 'Opus subagent', EXPLORE = 'Claude Explore subagent', FABLE = 'Fable subagent', L2_ASTRA = 'gpt-6.2-astra';
 const L3I_K0 = 'Fable 5.2 high via /model claude-fable-5-2', L3I_K1 = 'Opus supervisor (Fable only for Critical)', L3C = 'Fable 5.2 high via /model claude-fable-5-2';
 const WORK = ['Standard-A', 'Standard-B', 'Important/Critical worker', 'Exploration', 'Layer-2 review', 'Layer-3 Important', 'Layer-3 Critical'];
 const GROK = 'grok-4.7-build-fast xhigh (codex-do auto)', GROK_IMP = 'grok-4.7-build-fast xhigh; Critical: Opus subagent';

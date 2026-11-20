@@ -24,7 +24,7 @@
 .PARAMETER Base
   Optional branch or revision for git diff Base...HEAD (excludes local changes).
 .PARAMETER Model
-  Reviewer model. Defaults to gpt-6-astra.
+  Reviewer model. Defaults to gpt-6.2-astra.
 .PARAMETER Effort
   Reviewer reasoning effort. Defaults to high.
 .PARAMETER OutFile
@@ -62,7 +62,7 @@ param(
   # Intent: K6b - auto follows Resolve-DispatchEngine; -SkipModel never reaches it. Status: K6b. Next: host grok review. Blockers: none. Confidence: fake-grok fixtures.
   [ValidateSet('auto','codex','grok')][string]$Engine = 'auto',
   [string]$Base,
-  [string]$Model = 'gpt-6-astra',   # Line 2026-09-28: Astra reviews at every tier that runs layer 2
+  [string]$Model = 'gpt-6.2-astra',   # Line 2026-09-28: Astra reviews at every tier that runs layer 2. Line 2026-11-20: 6.2
   [string]$Effort = 'high',
   [string]$OutFile,
   [string[]]$Paths = @(),   # git pathspecs (incl. ':(exclude)dir') that narrow the reviewed diff (2026-10-25)
@@ -582,6 +582,9 @@ function Resolve-ReviewVerdict {
 }
 
 function Invoke-Main {
+  # Supervisor fix 2026-11-20: ram-preflight.test.ps1 runs Invoke-Main extracted from this file, so script-scope init may not have run.
+  if ($null -eq $script:reviewBound) { $script:reviewBound = @{} }
+  if (-not $script:reviewEngine) { $script:reviewEngine = 'codex' }
   $engineDecision = $null
   $engineArguments = $null
   $engineMode = $null

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Delegate an implementation / GitHub task to Codex (GPT-6 Sol by default; -Model gpt-6-astra for Standard-B, Important, Critical).
+  Delegate an implementation / GitHub task to Codex (GPT-6.2 Sol by default; -Model gpt-6.2-astra for Standard-B, Important, Critical).
 
 .DESCRIPTION
   Detached by default: WMI launches a wrapper outside Claude Code's background process
@@ -24,7 +24,7 @@
   servers in ~/.codex/config.toml never spawn (measured 2026-08-01: 48.7s -> 12.6s for the
   same task - MCP startup was pure waste for delegations, which use shell+repo, not MCP).
   Because config is ignored, model/effort/tier are ALWAYS passed explicitly:
-  -m <Model, default gpt-6-sol> -c model_reasoning_effort=high -c service_tier=priority (Fast tier).
+  -m <Model, default gpt-6.2-sol> -c model_reasoning_effort=high -c service_tier=priority (Fast tier).
 
   Hybrid policy: Claude pre-fetches context (context7/github MCPs run warm on the
   Claude side) and embeds verified facts into the spec. If Codex needs external info
@@ -137,7 +137,7 @@ param(
   [switch]$NoRamCheck,
   [ValidateSet('','low','medium','high','xhigh','max','ultra')]
   [string]$Effort = '',            # explicit reasoning effort; wins over -Fast (Line 2026-09-19: Terra ultra for exploration, Astra xhigh for super-hard)
-  [string]$Model = 'gpt-6-sol',     # Line 2026-09-28: Sol for Skip + Standard-A; pass -Model gpt-6-astra for Standard-B, Important, Critical; gpt-6-luna for exploration tier 1
+  [string]$Model = 'gpt-6.2-sol',     # Line 2026-09-28: Sol for Skip + Standard-A; pass -Model gpt-6.2-astra for Standard-B, Important, Critical; gpt-6-luna for exploration tier 1. Line 2026-11-20: 6.2
   [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
   [string[]]$Prompt
 )

@@ -107,7 +107,7 @@ The box shows only the FIRST rule that fires, in this order (`actionBox` in `ser
 
 | Rule | Fires when | Action text |
 | --- | --- | --- |
-| a | Claude 7-day or the Codex quota (longest window of the current account; never Claude 5-hour): pace > 1.3 (`RULES.quotaPace`, not early) or used >= 85 % (`RULES.quotaUsed`) | Codex: route Standard-A to gpt-6-sol and exploration to gpt-6-luna until the reset (see the Routing card). Claude: hand more work to Codex. |
+| a | Claude 7-day or the Codex quota (longest window of the current account; never Claude 5-hour): pace > 1.3 (`RULES.quotaPace`, not early) or used >= 85 % (`RULES.quotaUsed`) | Codex: route Standard-A to gpt-6.2-sol and exploration to gpt-6-luna until the reset (see the Routing card). Claude: hand more work to Codex. |
 | h | Claude 5-hour used >= 80 % (`RULES.handoffUsed`) | finish the current check, update the handoff, pause Claude work until the window resets |
 | b | commit charge > 90 % of the commit limit (strict; low free RAM alone never fires, Line 2026-11-14) - skipped when the newest system sample is older than 10 minutes | close the biggest process group, or idle node / Codex processes |
 | f | `~/AGENTS.md` exists (existence check only, the file is never read; `LINE_HUB_HOME` overrides the home folder) | move it out of the home folder and check what recreated it (Codex desktop Claude import) |

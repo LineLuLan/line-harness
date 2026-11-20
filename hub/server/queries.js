@@ -694,9 +694,9 @@ function routeInputOf(rows) {
  * Blockers: none. Confidence: tests/h8a-route.test.js (every cell + boundaries). */
 const DEFAULT_ROUTE = { codexPace1: 1.0, codexPace2: 1.3, codexUsed1: 70, codexUsed2: 85, codexUsed3: 95, claudePace: 1.2, claudeUsed: 70, claude5Used: 80 };
 const DEFAULT_WORK = ['Standard-A', 'Standard-B', 'Important/Critical worker', 'Exploration', 'Layer-2 review', 'Layer-3 Important', 'Layer-3 Critical'];
-const RM = { sol: 'gpt-6-sol high', astra: 'gpt-6-astra high', astraNr: 'gpt-6-astra high (no resumes)', luna: 'gpt-6-luna max then gpt-6-sol ultra',
-  sbCond: 'gpt-6-sol high if <=3 files and runnable VALIDATE, else gpt-6-astra high', opus: 'Opus subagent', explore: 'Claude Explore subagent',
-  fable: 'Fable subagent', l2astra: 'gpt-6-astra', grok: 'grok-4.7-build-fast xhigh (codex-do auto)',
+const RM = { sol: 'gpt-6.2-sol high', astra: 'gpt-6.2-astra high', astraNr: 'gpt-6.2-astra high (no resumes)', luna: 'gpt-6.2-sol high then gpt-6.2-astra xhigh',
+  sbCond: 'gpt-6.2-sol high if <=3 files and runnable VALIDATE, else gpt-6.2-astra high', opus: 'Opus subagent', explore: 'Claude Explore subagent',
+  fable: 'Fable subagent', l2astra: 'gpt-6.2-astra', grok: 'grok-4.7-build-fast xhigh (codex-do auto)',
   grokImp: 'grok-4.7-build-fast xhigh; Critical: Opus subagent' };
 // Rows 0-4 (Standard-A .. Layer-2) per Claude level and Codex level; every cell has a row set (C3 = Grok, K5f 2026-11-18).
 const DEFAULT_MATRIX = {

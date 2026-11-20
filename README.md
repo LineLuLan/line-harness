@@ -10,9 +10,9 @@ This repository is a working backup of a real machine. You can read it to learn 
 | --- | --- | --- |
 | Owner | Line | Decides; approves Critical work; the only one who commits, pushes, or deploys |
 | Supervisor | Claude Code, Opus 5.5 | Plans, writes the task packet, picks the model, verifies (layer 3), installs, reports |
-| Worker | Codex CLI: `gpt-6-sol` (small), `gpt-6-astra` (large, Important, Critical), `gpt-6-luna` (exploration) | Implements the packet in a sandbox, writes only inside the repo it was given |
+| Worker | Codex CLI: `gpt-6.2-sol` (small), `gpt-6.2-astra` (large, Important, Critical), `gpt-6.2-sol` then `gpt-6.2-astra` (exploration) | Implements the packet in a sandbox, writes only inside the repo it was given |
 | Backup worker | Claude Opus subagent | Takes Standard work when Codex quota is tight |
-| Reviewers | Fable 5.2 subagent, `gpt-6-astra` in a fresh session | Read the packet before dispatch; review the diff after; never the author |
+| Reviewers | Fable 5.2 subagent, `gpt-6.2-astra` in a fresh session | Read the packet before dispatch; review the diff after; never the author |
 
 ### One task, end to end
 
@@ -50,9 +50,9 @@ flowchart TD
     Q["Read Codex and Claude quota"] --> X{"Codex used >= 95%<br/>AND Claude stressed?"}
     X -- yes --> GROK["Grok worker via codex-do auto<br/>(Critical: Opus subagent; layer 2 Fable)"]
     X -- no --> Y{"Claude stressed?<br/>7-day pace > 1.2 or used >= 70%"}
-    Y -- yes --> BOTH["Standard-A and Standard-B: gpt-6-sol high, never deferred<br/>Layer 2: gpt-6-astra; no Opus workers"]
+    Y -- yes --> BOTH["Standard-A and Standard-B: gpt-6.2-sol high, never deferred<br/>Layer 2: gpt-6.2-astra; no Opus workers"]
     Y -- no --> Z{"Codex level"}
-    Z -- "C0: pace <= 1.0, used < 70%" --> N0["Normal table:<br/>Standard-A sol, Standard-B / Important / Critical astra,<br/>exploration luna"]
+    Z -- "C0: pace <= 1.0, used < 70%" --> N0["Normal table:<br/>Standard-A sol, Standard-B / Important / Critical astra,<br/>exploration sol then astra"]
     Z -- "C1: pace > 1.0 or used 70-84%" --> N1["Small Standard-B to sol,<br/>exploration by Claude, layer 2 Fable"]
     Z -- "C2: pace > 1.3 or used 85-94%" --> N2["Codex for Important/Critical only,<br/>Standard to an Opus subagent, no resumes"]
     Z -- "C3: used >= 95%" --> N3["No Codex: Grok worker via codex-do auto<br/>(Critical: Opus subagent), Fable layer 2"]

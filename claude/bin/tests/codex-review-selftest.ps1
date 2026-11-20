@@ -60,7 +60,7 @@ function Invoke-Review([string]$Name, [string[]]$ReviewArgs) {
       Assert-True ($entry.findings[0].severity -ceq 'P1' -and $entry.findings[0].location -ceq 'a.js:2' -and $entry.findings[0].title -ceq 'mock finding') 'finding fields parsed'
     }
     if ($Name -eq 'mock-pass') {
-      Assert-True ($entry.specFile -ceq $packet -and $entry.dir -ceq $repo -and $entry.model -ceq 'gpt-6-astra' -and $entry.effort -ceq 'high' -and $entry.gates.secrets -ceq 'PASS' -and $entry.gates.lint -ceq 'SKIP') 'log records packet and gate statuses'
+      Assert-True ($entry.specFile -ceq $packet -and $entry.dir -ceq $repo -and $entry.model -ceq 'gpt-6.2-astra' -and $entry.effort -ceq 'high' -and $entry.gates.secrets -ceq 'PASS' -and $entry.gates.lint -ceq 'SKIP') 'log records packet and gate statuses'
     }
     if ($Name -eq 'gates') { Assert-True ($entry.gates.secrets -ceq 'FAIL') 'log records failing gates' }
     # Intent: prove every review layer writes only its own evidence. Status: actual child-output checks.
@@ -368,7 +368,7 @@ if (mode === 'unknown') {
   $report = Get-Content -Raw -LiteralPath $mockReport
   Assert-True ($report -match 'mock diagnostic' -and $report -match 'VERDICT: PASS' -and $report -match 'GATE lint: SKIP') 'OutFile saves both streams and gates'
   $trail = Join-Path $env:USERPROFILE '.claude\state\dispatch-trail.log'
-  Assert-True ((Get-Content -LiteralPath $trail | Select-Object -Last 1) -match '^\d+\|review\|gpt-6-astra\|high\|') 'dispatch trail uses review/model/effort fields'
+  Assert-True ((Get-Content -LiteralPath $trail | Select-Object -Last 1) -match '^\d+\|review\|gpt-6\.2-astra\|high\|') 'dispatch trail uses review/model/effort fields'
   Assert-True (-not (Test-Path -LiteralPath (Join-Path $env:USERPROFILE '.claude\state\dispatch-trail.lock'))) 'dispatch lock is released'
 
   # Intent: prove packet scope reaches layer 2 and relative paths preserve log identity. Status: regression. Next: install. Blockers: none. Confidence: captured stdin and JSONL.

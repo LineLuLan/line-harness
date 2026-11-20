@@ -10,6 +10,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const f = require('./fixtures/synthetic');
 const { open } = require('../collector/db');
+const { parseLedger } = require('../collector/ledger');
 const base = path.resolve(__dirname, '..', '.tmp');
 fs.mkdirSync(base, { recursive: true });
 function setup(t) {
@@ -77,6 +78,14 @@ test('all source shapes, normalization, dedupe, privacy and MAX across runs', t 
     assert.equal(row(db, 'claude_sessions').turns, 1);
   });
 });
+test('ledger keeps explicit 6.2 workers distinct from historical Astra and Sol aliases', () => {
+  const model = note => parseLedger('2026-11-20|Important|yes|0|0|0|' + note).row.model;
+  assert.equal(model('review|worker=gpt-6.2-astra high'), 'gpt-6.2-astra');
+  assert.equal(model('(worker gpt-6.2-sol)'), 'gpt-6.2-sol');
+  assert.equal(model('review|worker=astra'), 'gpt-6-astra');
+  assert.equal(model('(worker sol)'), 'gpt-6-sol');
+});
+
 test('partial UTF-8 lines, BOM/CRLF, malformed lines and shrinking files', t => {
   const env = setup(t);
   const file = path.join(env.LINE_HUB_CLAUDE_DIR, 'projects', 'p', 'a.jsonl');
